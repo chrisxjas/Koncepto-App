@@ -1,0 +1,33 @@
+{
+  "name": "main",
+  "expo": {
+    "name": "Koncepto",
+    "slug": "konceptoApp",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "newArchEnabled": true,
+    "ios": {
+      "supportsTablet": true
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#ffffff"
+      },
+      "edgeToEdgeEnabled": true,
+      "package": "com.chrisxjas.konceptoApp"
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "extra": {
+      "eas": {
+        "projectId": "4e6f799b-8798-4346-ae8b-30e1db2b3e79"
+      }
+    },
+    "plugins": [
+      "expo-web-browser"
+    ]
+  }
+}

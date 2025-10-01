@@ -1,0 +1,51 @@
+<?php
+header("Content-Type: application/json");
+header("Access-Control-Allow-Origin: *"); 
+header("Access-Control-Allow-Methods: POST"); 
+header("Access-Control-Allow-Headers: Content-Type");
+
+include __DIR__ . '/db_connection.php'; // centralized DB connection
+
+$response = ['success' => false];
+
+try {
+    if (!isset($_POST['user_id'], $_POST['address'], $_POST['latitude'], $_POST['longitude'])) {
+        throw new Exception('Missing required fields.');
+    }
+
+    $user_id = intval($_POST['user_id']);
+    $address = trim($_POST['address']);
+    $latitude = floatval($_POST['latitude']);
+    $longitude = floatval($_POST['longitude']);
+
+    // Check if user already has a location
+    $stmt = $conn->prepare("SELECT id FROM user_location WHERE id = ?");
+    $stmt->bind_param("i", $user_id);
+    $stmt->execute();
+    $stmt->store_result();
+
+    if ($stmt->num_rows > 0) {
+        // Update existing location
+        $update = $conn->prepare("UPDATE user_location SET address=?, latitude=?, longitude=?, updated_at=NOW() WHERE id=?");
+        $update->bind_param("sddi", $address, $latitude, $longitude, $user_id);
+        $update->execute();
+        $update->close();
+    } else {
+        // Insert new location
+        $insert = $conn->prepare("INSERT INTO user_location (id, address, latitude, longitude, created_at, updated_at) VALUES (?, ?, ?, ?, NOW(), NOW())");
+        $insert->bind_param("isdd", $user_id, $address, $latitude, $longitude);
+        $insert->execute();
+        $insert->close();
+    }
+
+    $response['success'] = true;
+    $response['message'] = 'Location updated successfully.';
+} catch (Exception $e) {
+    $response['success'] = false;
+    $response['message'] = $e->getMessage();
+}
+
+// Always echo JSON, no whitespace before <?php
+echo json_encode($response);
+exit;
+?>
