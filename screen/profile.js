@@ -16,6 +16,7 @@ import {
   Dimensions,
   SafeAreaView,
   KeyboardAvoidingView,
+  BackHandler,
 } from 'react-native';
 import Checkbox from 'expo-checkbox';
 import * as ImagePicker from 'expo-image-picker';
@@ -87,11 +88,10 @@ export default function Profile({ route }) {
   const [editAccountModalVisible, setEditAccountModalVisible] = useState(false);
   const [newEmail, setNewEmail] = useState('');
   const [newPassword, setNewPassword] = useState('');
-  const [confirmNewPassword, setConfirmNewPassword] = '';
+  const [confirmNewPassword, setConfirmNewPassword] = useState('');
   const [passwordVerificationModalVisible, setPasswordVerificationModalVisible] = useState(false);
   const [currentPasswordInput, setCurrentPasswordInput] = useState('');
   const [confirmChangesModalVisible, setConfirmChangesModalVisible] = useState(false);
-
 
   // --- Fetch User Data (including email) ---
   const fetchUserData = useCallback(async () => {
@@ -137,7 +137,7 @@ export default function Profile({ route }) {
   const fetchStarterPackItems = useCallback(async () => {
     if (!user.id) return;
     try {
-      const response = await fetch(`${BASE_URL}/get-starter-pack.php?user_id=${user.id}`);
+      const response = await fetch(`${BASE_URL}/get-starter-pack.php`);
       const resJson = await response.json();
       if (resJson.success && resJson.items) {
         setStarterPackItems(resJson.items);
@@ -155,7 +155,7 @@ export default function Profile({ route }) {
       return;
     }
     try {
-      const response = await fetch(`${BASE_URL}/get-custom-orders.php?user_id=${user.id}`);
+      const response = await fetch(`${BASE_URL}/check-custom-orders.php?user_id=${user.id}`);
       const resJson = await response.json();
       console.log('getCustomOrders response:', resJson); // Debugging: See the full response
       if (resJson.success && typeof resJson.has_orders === 'boolean') {
@@ -297,12 +297,13 @@ export default function Profile({ route }) {
   const handleLogout = async () => {
     try {
       await AsyncStorage.clear();
-      navigation.dispatch(
-        CommonActions.reset({
-          index: 0,
-          routes: [{ name: 'LoginScreen' }], // must exist in root navigator
-        })
-      );
+      
+      // COMPLETELY RESET NAVIGATION STACK - This is the key fix
+      navigation.reset({
+        index: 0,
+        routes: [{ name: 'Login' }], // Replace 'Login' with your actual login screen name
+      });
+      
     } catch (error) {
       console.log('Logout error:', error);
     }
@@ -414,23 +415,57 @@ export default function Profile({ route }) {
     try {
       for (const itemId of selectedIds) {
         const item = itemsToAdd.find(item => item.id.toString() === itemId);
-        if (!item) continue;
+        if (!item) {
+          console.log('Item not found for ID:', itemId);
+          continue;
+        }
 
-        await fetch(`${BASE_URL}/add-to-cart.php`, {
+        // Debug: Check the item structure
+        console.log('Adding item to cart:', {
+          itemId: item.id,
+          product_id: item.product_id,
+          name: item.name,
+          price: item.price
+        });
+
+        // Extract numeric ID properly
+        const productId =
+          item.product_id ||
+          item.product_id_actual ||
+          (item.id ? parseInt(item.id.replace(/\D/g, '')) : null);
+
+        
+        if (!productId) {
+          console.error('No product ID found for item:', item);
+          Alert.alert('Error', `Could not add "${item.name}" to cart: Missing product ID`);
+          continue;
+        }
+
+        const response = await fetch(`${BASE_URL}/add-to-cart.php`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             user_id: user.id,
-            product_id: item.product_id,
+            product_id: productId, // Use the determined product ID
             quantity: 1,
           }),
         });
+
+        const result = await response.json();
+        console.log('Add to cart response:', result);
+        
+        if (!result.success) {
+          console.error('Add to cart failed:', result.message);
+          Alert.alert('Error', `Failed to add "${item.name}" to cart: ${result.message}`);
+        }
       }
+      
       Alert.alert('Success', 'Items added to cart.');
+      // Navigate to carts screen to show the updated cart
       navigation.navigate('Carts', { user });
     } catch (error) {
       console.error('Add to cart error:', error);
-      Alert.alert('Error', 'Failed to add items to cart.');
+      Alert.alert('Error', 'Failed to add items to cart. Please try again.');
     } finally {
       setSelectedItems({});
     }
@@ -439,18 +474,35 @@ export default function Profile({ route }) {
   const handleBuyNow = (itemsToBuy) => {
     const selected = itemsToBuy
       .filter(item => selectedItems[item.id])
-      .map(item => ({
-        product_id: item.product_id,
-        productName: item.name,
-        price: parseFloat(item.price), // Ensure price is numeric
-        quantity: 1,
-        image: item.image,
-      }));
+      .map(item => {
+        // Ensure we have the correct product_id
+        const productId =
+          item.product_id ||
+          item.product_id_actual ||
+          (item.id ? parseInt(item.id.replace(/\D/g, '')) : null);
+
+        console.log('Processing item for Buy Now:', {
+          itemId: item.id,
+          productId: productId,
+          name: item.name,
+          price: item.price
+        });
+        
+        return {
+          product_id: productId, // This is critical for the PHP to work
+          productName: item.name,
+          price: parseFloat(item.price),
+          quantity: 1,
+          image: item.image,
+        };
+      });
 
     if (selected.length === 0) {
       Alert.alert('No items selected', 'Please select at least one item to proceed.');
       return;
     }
+
+    console.log('Final items for PlaceRequest:', selected);
 
     const total = selected.reduce((sum, item) => sum + parseFloat(item.price), 0);
 
@@ -907,19 +959,15 @@ export default function Profile({ route }) {
 
           <View style={styles.section}>
             <Text style={styles.sectionHeading}>Support</Text>
-            <TouchableOpacity style={styles.supportItem} onPress={showUnavailableAlert}>
-              <Ionicons name="help-circle-outline" size={18} color={colors.darkerGreen} />
-              <Text style={styles.supportText}>Help Center</Text>
-            </TouchableOpacity>
 
             {/* Make sure you have this in your component */}
             <UnavailableAlert
               visible={unavailableAlertVisible}
               onClose={closeUnavailableAlert}
             />
-            <TouchableOpacity style={styles.supportItem} onPress={() => navigation.navigate('ChatBot', { user })}>
-              <Ionicons name="chatbubble-ellipses-outline" size={18} color={colors.darkerGreen} /> {/* Smaller icon */}
-              <Text style={styles.supportText}>Chat with Koncepto</Text>
+            <TouchableOpacity style={styles.supportItem} onPress={() => navigation.navigate('HelpCenter', { user })}>
+              <Ionicons name="help-circle-outline" size={18} color={colors.darkerGreen} />
+              <Text style={styles.supportText}>Help Center</Text>
             </TouchableOpacity>
           </View>
           <View style={{ height: 20 }} />{/* Add some padding at the bottom of the scroll view */}
@@ -982,23 +1030,31 @@ export default function Profile({ route }) {
           </TouchableOpacity>
 
           {/* Show UnavailableAlert for these buttons */}
-          <TouchableOpacity style={styles.settingsOption} onPress={showUnavailableAlert}>
+          <TouchableOpacity style={styles.settingsOption} onPress={() => navigation.navigate('AccSettings', { user })}>
             <Ionicons name="settings-outline" size={20} color={colors.textPrimary} style={styles.settingsOptionIcon} />
             <Text style={styles.settingsOptionText}>Account Settings</Text>
           </TouchableOpacity>
 
-          <TouchableOpacity style={styles.settingsOption} onPress={showUnavailableAlert}>
+          <TouchableOpacity style={styles.settingsOption} onPress={() => navigation.navigate('Receipt', { user })}>
             <Ionicons name="document-text-outline" size={20} color={colors.textPrimary} style={styles.settingsOptionIcon} />
             <Text style={styles.settingsOptionText}>Receipt</Text>
           </TouchableOpacity>
 
-          <TouchableOpacity style={styles.settingsOption} onPress={showUnavailableAlert}>
+          <TouchableOpacity style={styles.supportItem} onPress={() => navigation.navigate('HelpCenter', { user })}>
             <Ionicons name="help-circle-outline" size={20} color={colors.textPrimary} style={styles.settingsOptionIcon} />
             <Text style={styles.settingsOptionText}>Help Center</Text>
           </TouchableOpacity>
 
-          <TouchableOpacity style={styles.settingsOption} onPress={showUnavailableAlert}>
-            <Ionicons name="information-circle-outline" size={20} color={colors.textPrimary} style={styles.settingsOptionIcon} />
+          <TouchableOpacity 
+            style={styles.settingsOption} 
+            onPress={() => navigation.navigate("About")}
+          >
+            <Ionicons 
+              name="information-circle-outline" 
+              size={20} 
+              color={colors.textPrimary} 
+              style={styles.settingsOptionIcon} 
+            />
             <Text style={styles.settingsOptionText}>About</Text>
           </TouchableOpacity>
 

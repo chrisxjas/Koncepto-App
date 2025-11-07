@@ -38,7 +38,7 @@ import ToRate from './to-rate';
 import PlaceRequest from './place-request';
 import OrderHistory from './order-history';
 import MyProfile from './myprofile';
-import ChatBot from './chatbot';
+import HelpCenter from './helpcenter';
 import AccountOptions from './account-options';
 import Receipt from './receipt';
 import CustomOrder from './custom-order';
@@ -49,6 +49,9 @@ import ForgotPassword from './forgot-password';
 import DIYsection from './DIYsection';
 import GetCaptions from './essentials/getCaptions';
 import EditLocation from './edit-location';
+import About from './about';
+import Notification from './notification';
+import AccSettings from './account-settings';
 
 // Reusable components
 import Loading from './essentials/loading';
@@ -250,7 +253,7 @@ function App() {
         <Stack.Screen name="PlaceRequest" component={PlaceRequest} options={{ headerShown: false }} />
         <Stack.Screen name="OrderHistory" component={OrderHistory} options={{ headerShown: false }} />
         <Stack.Screen name="MyProfile" component={MyProfile} options={{ headerShown: false }} />
-        <Stack.Screen name="ChatBot" component={ChatBot} options={{ headerShown: false }} />
+        <Stack.Screen name="HelpCenter" component={HelpCenter} options={{ headerShown: false }} />
         <Stack.Screen name="AccountOptions" component={AccountOptions} options={{ headerShown: false }} />
         <Stack.Screen name="Receipt" component={Receipt} options={{ headerShown: false }} />
         <Stack.Screen name="CustomOrder" component={CustomOrder} options={{ headerShown: false }} />
@@ -263,6 +266,9 @@ function App() {
         <Stack.Screen name="EditLocation" component={EditLocation} options={{ headerShown: false }} />
         <Stack.Screen name="UnavailableAlert" component={UnavailableAlert} options={{ headerShown: false }} />
         <Stack.Screen name="Refresh" component={Refresh} options={{ headerShown: false }} />
+        <Stack.Screen name="About" component={About} options={{ headerShown: false }} />
+        <Stack.Screen name="Notification" component={Notification} options={{ headerShown: false }} />
+        <Stack.Screen name="AccSettings" component={AccSettings} options={{ headerShown: false }} />
       </Stack.Navigator>
     </NavigationContainer>
   );

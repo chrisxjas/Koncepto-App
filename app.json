@@ -27,7 +27,8 @@
       }
     },
     "plugins": [
-      "expo-web-browser"
+      "expo-web-browser",
+      "react-native-vision-camera"
     ]
   }
 }

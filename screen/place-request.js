@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import {
   View, Text, StyleSheet, Image, TouchableOpacity,
   FlatList, ScrollView, SafeAreaView, Dimensions, Modal,
-  Linking, BackHandler, RefreshControl
+  Linking, BackHandler, RefreshControl, TextInput, Alert
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { Ionicons, FontAwesome5 } from '@expo/vector-icons';
@@ -13,7 +13,7 @@ import { useFocusEffect } from '@react-navigation/native';
 import AlertMessage from './essentials/AlertMessage';
 import Refresh from './essentials/refresh';
 
-const { height: screenHeight } = Dimensions.get('window');
+const { height: screenHeight, width: screenWidth } = Dimensions.get('window');
 
 const colors = {
   primaryGreen: '#4CAF50',
@@ -37,6 +37,13 @@ const PlaceRequest = ({ route, navigation }) => {
   const [userLocation, setUserLocation] = useState({ address: '', cp_no: user?.cp_no || '' });
   const [refreshing, setRefreshing] = useState(false);
   const [selectedLocationObj, setSelectedLocationObj] = useState(null);
+  const [scanningRef, setScanningRef] = useState(false);
+  const [extractedRefCode, setExtractedRefCode] = useState(null);
+  const [showManualRefModal, setShowManualRefModal] = useState(false);
+  const [manualRefCode, setManualRefCode] = useState('');
+  const [uploadedImageUri, setUploadedImageUri] = useState(null);
+  const [showImagePreview, setShowImagePreview] = useState(false);
+  const [previewImageUri, setPreviewImageUri] = useState(null);
 
   const [alertVisible, setAlertVisible] = useState(false);
   const [alertTitle, setAlertTitle] = useState('');
@@ -137,7 +144,79 @@ const PlaceRequest = ({ route, navigation }) => {
     loadSavedOrDefaultLocation();
   }, [user?.id]);
 
-  // ✅ Updated Image picker
+  // OCR Function to extract reference number - FIXED: Use 'Ref_code' consistently
+  const extractReferenceNumber = async (imageUri) => {
+    setScanningRef(true);
+    try {
+      const formData = new FormData();
+      const filename = imageUri.split('/').pop();
+      const match = /\.(\w+)$/.exec(filename);
+      const type = match ? `image/${match[1]}` : `image/jpeg`;
+      
+      formData.append('image', {
+        uri: imageUri,
+        name: filename,
+        type
+      });
+
+      const response = await fetch(`${BASE_URL}/extract-reference.php`, {
+        method: 'POST',
+        body: formData,
+        headers: {
+          'Content-Type': 'multipart/form-data',
+        },
+      });
+
+      const result = await response.json();
+      
+      // FIXED: Use 'Ref_code' instead of 'ref_code'
+      if (result.success && result.Ref_code) {
+        setExtractedRefCode(result.Ref_code);
+        setScanningRef(false);
+        showAlert('Reference Detected', `Reference number: ${result.Ref_code} has been detected successfully.`);
+        return result.Ref_code;
+      } else if (result.message === 'no_reference_detected') {
+        setScanningRef(false);
+        setUploadedImageUri(imageUri);
+        setShowManualRefModal(true);
+        return null;
+      } else {
+        setScanningRef(false);
+        showAlert('Scanning Failed', 'Could not detect a reference number. Please enter it manually.');
+        setUploadedImageUri(imageUri);
+        setShowManualRefModal(true);
+        return null;
+      }
+    } catch (error) {
+      console.error('OCR Error:', error);
+      setScanningRef(false);
+      showAlert('Scanning Error', 'Failed to process the image. Please enter the reference number manually.');
+      setUploadedImageUri(imageUri);
+      setShowManualRefModal(true);
+      return null;
+    }
+  };
+
+  // Handle manual reference number submission
+  const handleManualRefSubmit = () => {
+    if (!manualRefCode.trim()) {
+      showAlert('Error', 'Please enter a reference number.');
+      return;
+    }
+
+    // Basic validation for reference number
+    if (manualRefCode.length < 8 || manualRefCode.length > 20) {
+      showAlert('Invalid Reference', 'Reference number should be between 8-20 characters.');
+      return;
+    }
+
+    setExtractedRefCode(manualRefCode.trim());
+    setShowManualRefModal(false);
+    setManualRefCode('');
+    showAlert('Reference Saved', `Reference number: ${manualRefCode.trim()} has been saved.`);
+  };
+
+  // Updated Image picker with portrait cropping and full-screen preview
   const pickImage = async () => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (status !== 'granted') {
@@ -146,13 +225,29 @@ const PlaceRequest = ({ route, navigation }) => {
     }
 
     const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images, // updated
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
       allowsEditing: true,
-      quality: 1,
+      aspect: [3, 4], // ✅ Portrait orientation (3:4 ratio)
+      quality: 0.9, // Higher quality for better OCR
     });
 
     if (!result.canceled) {
-      setPaymentProof(result.assets[0].uri);
+      const imageUri = result.assets[0].uri;
+      setPaymentProof(imageUri);
+      setExtractedRefCode(null);
+      
+      // Show full-screen preview before OCR
+      setShowImagePreview(true);
+      setPreviewImageUri(imageUri);
+    }
+  };
+
+  // Handle image confirmation for OCR processing
+  const handleImageConfirm = async () => {
+    setShowImagePreview(false);
+    if (previewImageUri) {
+      // Automatically extract reference number from the confirmed image
+      await extractReferenceNumber(previewImageUri);
     }
   };
 
@@ -196,18 +291,28 @@ const PlaceRequest = ({ route, navigation }) => {
     }
   };
 
+  // FIXED: handlePlaceRequest with consistent 'Ref_code' naming
   const handlePlaceRequest = async (isInitialPayment = false) => {
-    if (!selectedPayment) { showAlert('Error', 'Please select a payment method.'); return; }
-    if ((selectedPayment === 'GCash' || (isInitialPayment && selectedPayment === 'Cash')) && !paymentProof) {
+    if (!selectedPayment) { 
+      showAlert('Error', 'Please select a payment method.'); 
+      return; 
+    }
+    
+    if ((selectedPayment === 'GCash' || (isInitialPayment && selectedPayment === 'GCash')) && !paymentProof) {
       showAlert('Error', 'Please upload your payment proof.');
       return;
     }
+
+    if ((selectedPayment === 'GCash' || (isInitialPayment && selectedPayment === 'GCash')) && !extractedRefCode) {
+      showAlert('Invalid Payment Proof', 'Reference number is required for GCash payments.');
+      return;
+    }
+
     if (!selectedLocationObj) {
       showAlert('No location', 'Please select a shipping address before placing the request.');
       return;
     }
 
-    // ✅ Use reusable Refresh component
     setRefreshing(true);
     try {
       const formData = new FormData();
@@ -219,6 +324,11 @@ const PlaceRequest = ({ route, navigation }) => {
       formData.append('is_initial_payment', isInitialPayment ? 1 : 0);
       formData.append('items', JSON.stringify(selectedItems.map(item => ({ product_id: item.product_id, quantity: item.quantity, price: item.price }))));
       formData.append('location_id', selectedLocationObj.id);
+      
+      // ✅ FIXED: Use 'Ref_code' (capital R) to match database column
+      if (extractedRefCode) {
+        formData.append('Ref_code', extractedRefCode);
+      }
 
       if (paymentProof) {
         const filename = paymentProof.split('/').pop();
@@ -227,16 +337,25 @@ const PlaceRequest = ({ route, navigation }) => {
         formData.append('payment_proof', { uri: paymentProof, name: filename, type });
       }
 
-      const response = await fetch(`${BASE_URL}/place-request.php`, { method: 'POST', body: formData });
+      console.log('Sending payment request with Ref_code:', extractedRefCode);
+
+      const response = await fetch(`${BASE_URL}/place-request.php`, { 
+        method: 'POST', 
+        body: formData 
+      });
       const result = await response.json();
+
+      console.log('Server response:', result);
 
       if (result.success) {
         showAlert('Success', 'Your request has been placed!');
         if (onCheckoutSuccess) onCheckoutSuccess();
         navigation.navigate(result.screen === 'to-confirm' ? 'ToConfirm' : 'ToPay', { user });
-      } else showAlert('Error', result.message || 'Failed to place request.');
+      } else {
+        showAlert('Error', result.message || 'Failed to place request.');
+      }
     } catch (error) {
-      console.error(error);
+      console.error('Request error:', error);
       showAlert('Error', 'Something went wrong while placing the request. Please try again.');
     } finally {
       setRefreshing(false);
@@ -258,8 +377,7 @@ const PlaceRequest = ({ route, navigation }) => {
 
   return (
     <SafeAreaView style={styles.safeArea}>
-      {/* ✅ Use Refresh component at the top */}
-      <Refresh visible={refreshing} title="Loading..." />
+      <Refresh visible={refreshing || scanningRef} title={scanningRef ? "Scanning Reference Number..." : "Loading..."} />
 
       <ScrollView
         contentContainerStyle={styles.scrollableContent}
@@ -337,10 +455,26 @@ const PlaceRequest = ({ route, navigation }) => {
               </TouchableOpacity>
 
               {/* Payment proof upload */}
-              <TouchableOpacity style={[styles.placeButton, { marginTop: 10, backgroundColor: '#777' }]} onPress={pickImage}>
-                <Text style={styles.placeButtonText}>{paymentProof ? 'Change Payment Proof' : 'Upload Payment Proof'}</Text>
+              <TouchableOpacity 
+                style={[styles.placeButton, { marginTop: 10, backgroundColor: scanningRef ? '#999' : '#777' }]} 
+                onPress={pickImage}
+                disabled={scanningRef}
+              >
+                <Text style={styles.placeButtonText}>
+                  {scanningRef ? 'Scanning...' : paymentProof ? 'Change Payment Proof' : 'Upload Payment Proof'}
+                </Text>
               </TouchableOpacity>
-              {paymentProof && <Text style={{ marginTop: 5, color: colors.textSecondary, fontSize: 12 }}>File selected</Text>}
+              
+              {paymentProof && (
+                <View style={styles.refNoContainer}>
+                  <Text style={styles.refNoLabel}>Payment Proof: Selected</Text>
+                  {extractedRefCode ? (
+                    <Text style={styles.refNoSuccess}>Reference: {extractedRefCode}</Text>
+                  ) : (
+                    <Text style={styles.refNoError}>No reference number detected</Text>
+                  )}
+                </View>
+              )}
             </>
           )}
 
@@ -358,7 +492,14 @@ const PlaceRequest = ({ route, navigation }) => {
           )}
 
           {!orderExceedsLimit ? (
-            <TouchableOpacity style={[styles.placeButton, orderBelowMinimum && { backgroundColor: '#ccc' }]} onPress={() => handlePlaceRequest(false)} disabled={orderBelowMinimum}>
+            <TouchableOpacity 
+              style={[
+                styles.placeButton, 
+                (orderBelowMinimum || (selectedPayment === 'GCash' && !extractedRefCode)) && { backgroundColor: '#ccc' }
+              ]} 
+              onPress={() => handlePlaceRequest(false)} 
+              disabled={orderBelowMinimum || (selectedPayment === 'GCash' && !extractedRefCode)}
+            >
               <Text style={styles.placeButtonText}>PLACE REQUEST</Text>
             </TouchableOpacity>
           ) : (
@@ -368,6 +509,54 @@ const PlaceRequest = ({ route, navigation }) => {
           )}
         </View>
       </View>
+
+      {/* Manual Reference Number Modal */}
+      <Modal visible={showManualRefModal} animationType="slide" transparent={true}>
+        <View style={styles.modalContainer}>
+          <View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>Enter Reference Number</Text>
+            <Text style={styles.modalSubtitle}>
+              We couldn't automatically detect the reference number from your GCash receipt. 
+              Please enter it manually below.
+            </Text>
+            
+            <TextInput
+              style={styles.textInput}
+              placeholder="Enter GCash reference number"
+              value={manualRefCode}
+              onChangeText={setManualRefCode}
+              autoCapitalize="characters"
+              maxLength={20}
+            />
+            
+            <Text style={styles.helperText}>
+              Look for "Ref No." or "Reference" on your GCash receipt
+            </Text>
+
+            <View style={styles.modalButtonRow}>
+              <TouchableOpacity 
+                style={[styles.modalButton, styles.cancelButton]} 
+                onPress={() => {
+                  setShowManualRefModal(false);
+                  setManualRefCode('');
+                  setPaymentProof(null);
+                  setExtractedRefCode(null);
+                }}
+              >
+                <Text style={styles.cancelButtonText}>Cancel</Text>
+              </TouchableOpacity>
+              
+              <TouchableOpacity 
+                style={[styles.modalButton, styles.submitButton]} 
+                onPress={handleManualRefSubmit}
+                disabled={!manualRefCode.trim()}
+              >
+                <Text style={styles.submitButtonText}>Submit</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
 
       {/* Initial Payment Modal */}
       <Modal visible={showInitialModal} animationType="slide" transparent={true} onRequestClose={() => setShowInitialModal(false)}>
@@ -392,14 +581,64 @@ const PlaceRequest = ({ route, navigation }) => {
           </View>
         </View>
       </Modal>
+
+      {/* Full-Screen Image Preview Modal */}
+      <Modal visible={showImagePreview} animationType="fade" transparent={true}>
+        <View style={styles.fullScreenModalContainer}>
+          <View style={styles.fullScreenModalHeader}>
+            <TouchableOpacity 
+              style={styles.closeButton}
+              onPress={() => {
+                setShowImagePreview(false);
+                setPreviewImageUri(null);
+                setPaymentProof(null);
+              }}
+            >
+              <Ionicons name="close" size={28} color={colors.white} />
+            </TouchableOpacity>
+            <Text style={styles.previewTitle}>Payment Proof Preview</Text>
+            <View style={styles.headerSpacer} />
+          </View>
+          
+          <ScrollView 
+            style={styles.imagePreviewContainer}
+            maximumZoomScale={3.0}
+            minimumZoomScale={1.0}
+            contentContainerStyle={styles.scrollViewContent}
+          >
+            <Image 
+              source={{ uri: previewImageUri }} 
+              style={styles.fullScreenImage}
+              resizeMode="contain"
+            />
+          </ScrollView>
+          
+          <View style={styles.previewFooter}>
+            <TouchableOpacity 
+              style={[styles.previewButton, styles.cancelPreviewButton]}
+              onPress={() => {
+                setShowImagePreview(false);
+                setPreviewImageUri(null);
+                setPaymentProof(null);
+              }}
+            >
+              <Text style={styles.cancelPreviewButtonText}>Cancel</Text>
+            </TouchableOpacity>
+            
+            <TouchableOpacity 
+              style={[styles.previewButton, styles.confirmPreviewButton]}
+              onPress={handleImageConfirm}
+            >
+              <Text style={styles.confirmPreviewButtonText}>Use This Image</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 };
 
-export default PlaceRequest;
-
-
-// ✅ Styles
+// Updated Styles with full-screen image preview
 const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: colors.white },
   header: { flexDirection: 'row', alignItems: 'center', backgroundColor: colors.primaryGreen, paddingVertical: 12, paddingHorizontal: 10 },
@@ -432,5 +671,90 @@ const styles = StyleSheet.create({
   placeButton: { backgroundColor: colors.primaryGreen, padding: 15, borderRadius: 8, alignItems: 'center', marginTop: 10 },
   placeButtonText: { color: colors.white, fontWeight: 'bold' },
   modalContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.5)' },
-  modalContent: { backgroundColor: colors.white, padding: 20, borderRadius: 10, width: '85%' },
+  modalContent: { backgroundColor: colors.white, padding: 20, borderRadius: 10, width: '85%', maxHeight: '80%' },
+  refNoContainer: { marginTop: 5, padding: 8, backgroundColor: colors.lightGreen, borderRadius: 5 },
+  refNoLabel: { fontSize: 12, color: colors.textSecondary },
+  refNoSuccess: { fontSize: 12, color: colors.primaryGreen, fontWeight: 'bold', marginTop: 2 },
+  refNoError: { fontSize: 12, color: colors.errorRed, marginTop: 2 },
+  modalTitle: { fontSize: 18, fontWeight: 'bold', marginBottom: 10, textAlign: 'center' },
+  modalSubtitle: { fontSize: 14, color: colors.textSecondary, marginBottom: 15, textAlign: 'center' },
+  textInput: { borderWidth: 1, borderColor: colors.greyBorder, borderRadius: 8, padding: 12, fontSize: 16, marginBottom: 10 },
+  helperText: { fontSize: 12, color: colors.textSecondary, marginBottom: 15, textAlign: 'center' },
+  modalButtonRow: { flexDirection: 'row', justifyContent: 'space-between' },
+  modalButton: { flex: 1, padding: 12, borderRadius: 8, alignItems: 'center', marginHorizontal: 5 },
+  cancelButton: { backgroundColor: colors.greyBorder },
+  submitButton: { backgroundColor: colors.primaryGreen },
+  cancelButtonText: { color: colors.textPrimary, fontWeight: 'bold' },
+  submitButtonText: { color: colors.white, fontWeight: 'bold' },
+  
+  // Full-screen image preview styles
+  fullScreenModalContainer: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.9)',
+  },
+  fullScreenModalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingTop: 50,
+    paddingHorizontal: 15,
+    paddingBottom: 15,
+    backgroundColor: 'rgba(0,0,0,0.8)',
+  },
+  closeButton: {
+    padding: 5,
+  },
+  previewTitle: {
+    color: colors.white,
+    fontSize: 18,
+    fontWeight: 'bold',
+  },
+  headerSpacer: {
+    width: 30, // To balance the header layout
+  },
+  imagePreviewContainer: {
+    flex: 1,
+  },
+  scrollViewContent: {
+    flexGrow: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  fullScreenImage: {
+    width: screenWidth,
+    height: screenHeight * 0.7,
+  },
+  previewFooter: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    padding: 20,
+    backgroundColor: 'rgba(0,0,0,0.8)',
+    borderTopWidth: 1,
+    borderTopColor: colors.greyBorder,
+  },
+  previewButton: {
+    flex: 1,
+    padding: 15,
+    borderRadius: 8,
+    alignItems: 'center',
+    marginHorizontal: 5,
+  },
+  cancelPreviewButton: {
+    backgroundColor: colors.errorRed,
+  },
+  confirmPreviewButton: {
+    backgroundColor: colors.primaryGreen,
+  },
+  cancelPreviewButtonText: {
+    color: colors.white,
+    fontWeight: 'bold',
+    fontSize: 16,
+  },
+  confirmPreviewButtonText: {
+    color: colors.white,
+    fontWeight: 'bold',
+    fontSize: 16,
+  },
 });
+
+export default PlaceRequest;

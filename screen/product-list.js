@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useRef } from "react";
+import axios from "axios";
 import {
   View,
   Text,
@@ -14,6 +15,7 @@ import {
   Pressable,
   Animated,
   Easing,
+  RefreshControl,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useNavigation } from "@react-navigation/native";
@@ -48,8 +50,36 @@ const ProductList = ({ route }) => {
   const [groupedProducts, setGroupedProducts] = useState({});
   const [craftProducts, setCraftProducts] = useState([]);
   const [expandedCategories, setExpandedCategories] = useState({});
+  const [refreshing, setRefreshing] = useState(false);
+  const [unreadCount, setUnreadCount] = useState(0);
 
-  // DIY badge heartbeat animation
+  // ✅ Simple unread count fetch - silent error handling
+  const fetchUnreadCount = async () => {
+    try {
+      if (!user?.id) return;
+      
+      const response = await fetch(`${BASE_URL}/get_notifications.php?user_id=${user.id}`);
+      
+      if (!response.ok) return; // Silently handle HTTP errors
+      
+      const data = await response.json();
+      if (data.success) {
+        setUnreadCount(data.unread_count || 0);
+      }
+    } catch (error) {
+      // Silently handle any errors - no console logs, no error states
+      return;
+    }
+  };
+
+  useEffect(() => {
+    fetchUnreadCount();
+    
+    // Poll every 30 seconds
+    const interval = setInterval(fetchUnreadCount, 30000);
+    return () => clearInterval(interval);
+  }, [user]);
+
   const pulseAnim = useRef(new Animated.Value(1)).current;
   useEffect(() => {
     Animated.loop(
@@ -70,7 +100,6 @@ const ProductList = ({ route }) => {
     ).start();
   }, []);
 
-  // DIY Logo shake + zoom animation every 3s
   const diyAnim = useRef(new Animated.Value(0)).current;
   useEffect(() => {
     const loop = () => {
@@ -129,6 +158,16 @@ const ProductList = ({ route }) => {
     return q.every((word) => t.includes(word));
   };
 
+  // Fisher-Yates shuffle algorithm for randomizing arrays
+  const shuffleArray = (array) => {
+    const shuffled = [...array];
+    for (let i = shuffled.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+    }
+    return shuffled;
+  };
+
   const groupByCategory = (prods, cats, categoryFilter, search) => {
     const grouped = {};
     cats.forEach((cat) => {
@@ -137,15 +176,99 @@ const ProductList = ({ route }) => {
       if (categoryFilter !== null && cat.id !== categoryFilter) filtered = [];
       if (search.trim() !== "")
         filtered = filtered.filter((p) => fuzzyMatch(p.productName, search));
-      grouped[cat.categoryName] = filtered;
+      
+      // Shuffle products within each category
+      grouped[cat.categoryName] = shuffleArray(filtered);
     });
     return grouped;
   };
 
+  // Function to shuffle all products while maintaining category structure
+  const shuffleAllProducts = () => {
+    if (products.length > 0 && categories.length > 0) {
+      setGroupedProducts(
+        groupByCategory(products, categories, selectedCategory, searchQuery)
+      );
+    }
+    if (craftProducts.length > 0) {
+      setCraftProducts(shuffleArray(craftProducts));
+    }
+  };
+
+  const fetchProducts = () => {
+    return fetch(`${BASE_URL}/get-products.php`)
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.success) {
+          const shuffledProducts = shuffleArray(data.products);
+          setProducts(shuffledProducts);
+          return shuffledProducts;
+        }
+        return [];
+      })
+      .catch((err) => {
+        console.error("Product fetch error:", err);
+        return [];
+      });
+  };
+
+  const fetchCategories = () => {
+    return fetch(`${BASE_URL}/get-categories.php`)
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.success) {
+          const categoriesList = [{ id: null, categoryName: "All" }, ...data.categories];
+          setCategories(categoriesList);
+          return categoriesList;
+        }
+        return [];
+      })
+      .catch((err) => {
+        console.error("Category fetch error:", err);
+        return [];
+      });
+  };
+
+  const fetchCraftProducts = () => {
+    return fetch(`${BASE_URL}/fetch-artmat.php`)
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.success) {
+          const shuffledCrafts = shuffleArray(data.data);
+          setCraftProducts(shuffledCrafts);
+          return shuffledCrafts;
+        }
+        return [];
+      })
+      .catch((err) => {
+        console.error("Craft fetch error:", err);
+        return [];
+      });
+  };
+
+  const loadAllData = async () => {
+    setLoading(true);
+    try {
+      await Promise.all([
+        fetchProducts(),
+        fetchCategories(),
+        fetchCraftProducts()
+      ]);
+    } catch (error) {
+      console.error("Error loading data:", error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const onRefresh = async () => {
+    setRefreshing(true);
+    await loadAllData();
+    setRefreshing(false);
+  };
+
   useEffect(() => {
-    fetchProducts();
-    fetchCategories();
-    fetchCraftProducts();
+    loadAllData();
   }, []);
 
   useEffect(() => {
@@ -155,36 +278,6 @@ const ProductList = ({ route }) => {
       );
     }
   }, [products, categories, selectedCategory, searchQuery]);
-
-  const fetchProducts = () => {
-    fetch(`${BASE_URL}/get-products.php`)
-      .then((res) => res.json())
-      .then((data) => {
-        if (data.success) setProducts(data.products);
-      })
-      .catch((err) => console.error("Product fetch error:", err))
-      .finally(() => setLoading(false));
-  };
-
-  const fetchCategories = () => {
-    fetch(`${BASE_URL}/get-categories.php`)
-      .then((res) => res.json())
-      .then((data) => {
-        if (data.success) {
-          setCategories([{ id: null, categoryName: "All" }, ...data.categories]);
-        }
-      })
-      .catch((err) => console.error("Category fetch error:", err));
-  };
-
-  const fetchCraftProducts = () => {
-    fetch(`${BASE_URL}/fetch-artmat.php`)
-      .then((res) => res.json())
-      .then((data) => {
-        if (data.success) setCraftProducts(data.data);
-      })
-      .catch((err) => console.error("Craft fetch error:", err));
-  };
 
   const applyFilter = (categoryId) => {
     setSelectedCategory(categoryId);
@@ -394,6 +487,21 @@ const ProductList = ({ route }) => {
       {/* Header */}
       <View style={styles.header}>
         <Image source={require("../assets/logo.png")} style={styles.logo} />
+
+        {/* ✅ Simple Notification Icon - no error handling UI */}
+        <TouchableOpacity
+          style={styles.notifContainer}
+          onPress={() => navigation.navigate("Notification", { user })}
+        >
+          <Ionicons name="notifications-outline" size={26} color="#fff" />
+          {unreadCount > 0 && (
+            <Animated.View style={[styles.badge, { transform: [{ scale: pulseAnim }] }]}>
+              <Text style={styles.badgeText}>
+                {unreadCount > 99 ? "99+" : unreadCount}
+              </Text>
+            </Animated.View>
+          )}
+        </TouchableOpacity>
       </View>
 
       {/* Search + Filter */}
@@ -476,6 +584,14 @@ const ProductList = ({ route }) => {
           keyExtractor={(item) => item.key}
           renderItem={({ item }) => item.render()}
           contentContainerStyle={{ paddingBottom: 120 }}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={onRefresh}
+              colors={[colors.primaryGreen]}
+              tintColor={colors.primaryGreen}
+            />
+          }
           ListEmptyComponent={() => (
             <View style={styles.emptyListContainer}>
               <Text style={styles.emptyListText}>
@@ -597,6 +713,28 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.2,
     shadowRadius: 5,
     elevation: 5,
+  },
+  notifContainer: {
+    position: "absolute",
+    right: 20,
+    top: Platform.OS === "android" ? 35 : 55,
+  },
+  badge: {
+    position: "absolute",
+    top: -5,
+    right: -8,
+    backgroundColor: "red",
+    borderRadius: 10,
+    paddingHorizontal: 5,
+    paddingVertical: 1,
+    minWidth: 18,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  badgeText: {
+    color: "#fff",
+    fontSize: 10,
+    fontWeight: "bold",
   },
   logo: { width: 150, height: 50, resizeMode: "contain" },
   searchContainer: {

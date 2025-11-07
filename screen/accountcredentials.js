@@ -17,7 +17,7 @@ import {
 import { StatusBar } from "expo-status-bar";
 import { BASE_URL } from "../config";
 import { Ionicons } from "@expo/vector-icons";
-import AlertMessage from "./essentials/AlertMessage"; // ✅ import custom alert
+import AlertMessage from "./essentials/AlertMessage";
 
 export default function AccountCredentials({ navigation, route }) {
   const { first_name, last_name, cp_no } = route.params;
@@ -123,11 +123,11 @@ export default function AccountCredentials({ navigation, route }) {
   const handleRegister = async () => {
     setPasswordError("");
     if (!password.trim()) {
-      setPasswordError("Required");
+      setPasswordError("Password is required");
       return;
     } else if (!validatePassword(password)) {
       setPasswordError(
-        "Min 8 chars, must include letters, numbers, and symbols"
+        "Password must be at least 8 characters with letters, numbers, and symbols"
       );
       return;
     }
@@ -161,93 +161,159 @@ export default function AccountCredentials({ navigation, route }) {
   return (
     <KeyboardAvoidingView
       style={styles.container}
-      behavior={Platform.OS === "ios" ? "padding" : undefined}
+      behavior={Platform.OS === "ios" ? "padding" : "height"}
     >
       <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
         <View style={styles.inner}>
-          <Image
-            source={require("../assets/koncepto.png")}
-            style={styles.logo}
-            resizeMode="contain"
-          />
-          <Text style={styles.title}>Set Email and Password</Text>
-
-          <View style={styles.emailRow}>
-            <TextInput
-              style={[styles.input, emailError && styles.inputError, { flex: 1 }]}
-              placeholder="Email"
-              value={email}
-              onChangeText={(text) => {
-                setEmail(text);
-                setUserCode("");
-                setEmailError("");
-                if (verificationStatus === "verified") {
-                  setVerificationStatus("idle");
-                }
-              }}
-              keyboardType="email-address"
-              autoCapitalize="none"
+          <View style={styles.header}>
+            <Image
+              source={require("../assets/koncepto.png")}
+              style={styles.logo}
+              resizeMode="contain"
             />
-            {verificationStatus === "idle" || verificationStatus === "codeSent" ? (
-              <Animated.View
-                style={{
-                  transform: [{ scale: verificationStatus === "codeSent" ? scaleAnim : 1 }],
-                }}
-              >
-                <TouchableOpacity
-                  onPress={verificationStatus === "idle" ? handleSendCode : handleVerifyCode}
+            <Text style={styles.title}>Account Credentials</Text>
+            <Text style={styles.subtitle}>
+              Set your email and password to complete registration
+            </Text>
+          </View>
+
+          <View style={styles.formContainer}>
+            {/* Email Section */}
+            <View style={styles.inputContainer}>
+              <Text style={styles.label}>Email Address</Text>
+              <View style={styles.emailRow}>
+                <TextInput
+                  style={[
+                    styles.input, 
+                    emailError && styles.inputError, 
+                    { flex: 1 }
+                  ]}
+                  placeholder="Enter your email address"
+                  placeholderTextColor="#999"
+                  value={email}
+                  onChangeText={(text) => {
+                    setEmail(text);
+                    setUserCode("");
+                    setEmailError("");
+                    if (verificationStatus === "verified") {
+                      setVerificationStatus("idle");
+                    }
+                  }}
+                  keyboardType="email-address"
+                  autoCapitalize="none"
+                />
+                {verificationStatus === "idle" || verificationStatus === "codeSent" ? (
+                  <Animated.View
+                    style={{
+                      transform: [{ scale: verificationStatus === "codeSent" ? scaleAnim : 1 }],
+                    }}
+                  >
+                    <TouchableOpacity
+                      style={styles.actionButton}
+                      onPress={verificationStatus === "idle" ? handleSendCode : handleVerifyCode}
+                    >
+                      <Text style={styles.actionText}>
+                        {verificationStatus === "idle" ? "Send Code" : "Verify"}
+                      </Text>
+                    </TouchableOpacity>
+                  </Animated.View>
+                ) : verificationStatus === "verifying" ? (
+                  <ActivityIndicator size="small" color="#28a745" />
+                ) : (
+                  <Ionicons name="checkmark-circle" size={24} color="#28a745" />
+                )}
+              </View>
+              
+              {verificationStatus === "codeSent" && (
+                <View style={styles.verificationContainer}>
+                  <TextInput
+                    style={[styles.input, emailError && styles.inputError]}
+                    placeholder="Enter verification code"
+                    placeholderTextColor="#999"
+                    value={userCode}
+                    onChangeText={setUserCode}
+                    keyboardType="number-pad"
+                  />
+                </View>
+              )}
+              
+              {emailError ? (
+                <Text style={styles.errorText}>{emailError}</Text>
+              ) : (
+                <Text style={styles.helperText}>
+                  We'll send a verification code to this email
+                </Text>
+              )}
+            </View>
+
+            {/* Password Section */}
+            <View style={styles.inputContainer}>
+              <Text style={styles.label}>Password</Text>
+              <View style={[
+                styles.passwordContainer, 
+                passwordError && styles.inputError
+              ]}>
+                <TextInput
+                  style={styles.passwordInput}
+                  placeholder="Create a secure password"
+                  placeholderTextColor="#999"
+                  value={password}
+                  onChangeText={setPassword}
+                  secureTextEntry={!showPassword}
+                />
+                <TouchableOpacity 
+                  style={styles.eyeButton}
+                  onPress={() => setShowPassword(!showPassword)}
                 >
-                  <Text style={styles.actionText}>
-                    {verificationStatus === "idle" ? "Send Code" : "Verify"}
-                  </Text>
+                  <Ionicons
+                    name={showPassword ? "eye-off-outline" : "eye-outline"}
+                    size={20}
+                    color="#666"
+                  />
                 </TouchableOpacity>
-              </Animated.View>
-            ) : verificationStatus === "verifying" ? (
-              <ActivityIndicator size="small" color="#28a745" />
-            ) : (
-              <Ionicons name="checkmark-circle" size={24} color="green" />
-            )}
-          </View>
+              </View>
+              
+              {passwordError ? (
+                <Text style={styles.errorText}>{passwordError}</Text>
+              ) : (
+                <Text style={styles.helperText}>
+                  Minimum 8 characters with letters, numbers, and symbols
+                </Text>
+              )}
+            </View>
 
-          {verificationStatus === "codeSent" && (
-            <TextInput
-              style={[styles.input, emailError && styles.inputError]}
-              placeholder="Enter verification code"
-              value={userCode}
-              onChangeText={setUserCode}
-              keyboardType="number-pad"
-            />
-          )}
-          {emailError ? <Text style={styles.errorText}>{emailError}</Text> : null}
-
-          <View style={[styles.passwordContainer, passwordError && styles.inputError]}>
-            <TextInput
-              style={[styles.passwordInput, { flex: 1 }]}
-              placeholder="Enter Password"
-              value={password}
-              onChangeText={setPassword}
-              secureTextEntry={!showPassword}
-            />
-            <TouchableOpacity onPress={() => setShowPassword(!showPassword)}>
-              <Ionicons
-                name={showPassword ? "eye-off-outline" : "eye-outline"}
-                size={18}
-                color="green"
-                style={{ paddingHorizontal: 6 }}
-              />
+            {/* Register Button */}
+            <TouchableOpacity
+              style={[
+                styles.registerButton, 
+                verificationStatus !== "verified" && styles.registerButtonDisabled
+              ]}
+              onPress={handleRegister}
+              disabled={verificationStatus !== "verified"}
+            >
+              <Text style={styles.registerText}>
+                Complete Registration
+              </Text>
             </TouchableOpacity>
+
+            {/* Progress Indicator */}
+            <View style={styles.progressContainer}>
+              <View style={styles.progressStep}>
+                <View style={[styles.progressDot, styles.progressDotCompleted]} />
+                <Text style={styles.progressText}>Personal Info</Text>
+              </View>
+              <View style={styles.progressLine} />
+              <View style={styles.progressStep}>
+                <View style={[
+                  styles.progressDot, 
+                  verificationStatus === "verified" ? styles.progressDotCompleted : styles.progressDotCurrent
+                ]} />
+                <Text style={styles.progressText}>Credentials</Text>
+              </View>
+            </View>
           </View>
-          {passwordError && <Text style={styles.errorText}>{passwordError}</Text>}
 
-          <TouchableOpacity
-            style={[styles.registerButton, verificationStatus !== "verified" && { backgroundColor: "#ccc" }]}
-            onPress={handleRegister}
-            disabled={verificationStatus !== "verified"}
-          >
-            <Text style={styles.registerText}>Register</Text>
-          </TouchableOpacity>
-
-          {/* ✅ Custom Alert */}
+          {/* Custom Alert */}
           <AlertMessage
             visible={alertVisible}
             title={alertTitle}
@@ -263,17 +329,172 @@ export default function AccountCredentials({ navigation, route }) {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1 },
-  inner: { flex: 1, justifyContent: "center", padding: 30, backgroundColor: "#fff" },
-  logo: { width: 120, height: 120, alignSelf: "center", marginBottom: 15 },
-  title: { fontSize: 22, fontWeight: "bold", marginBottom: 20, textAlign: "center", color: "green" },
-  errorText: { color: "red", fontSize: 13, marginBottom: 8, marginLeft: 4 },
-  emailRow: { flexDirection: "row", alignItems: "center", marginBottom: 10 },
-  actionText: { color: "#28a745", marginLeft: 10, fontWeight: "bold", fontSize: 15 },
-  input: { height: 45, borderBottomWidth: 1, borderBottomColor: "#999", marginBottom: 15, paddingHorizontal: 10, fontSize: 15 },
-  inputError: { borderBottomColor: "red" },
-  passwordContainer: { flexDirection: "row", alignItems: "center", borderBottomWidth: 1, borderBottomColor: "#999", marginBottom: 15 },
-  passwordInput: { height: 45, fontSize: 15, paddingHorizontal: 10 },
-  registerButton: { backgroundColor: "#28a745", paddingVertical: 12, borderRadius: 8, alignItems: "center", marginTop: 20 },
-  registerText: { color: "#fff", fontWeight: "bold", fontSize: 16 },
+  container: { 
+    flex: 1,
+    backgroundColor: "#ffffff",
+  },
+  inner: { 
+    flex: 1, 
+    paddingHorizontal: 24,
+    paddingTop: 40,
+    paddingBottom: 20,
+  },
+  header: {
+    alignItems: "center",
+    marginBottom: 40,
+  },
+  logo: { 
+    width: 100, 
+    height: 100, 
+    marginBottom: 16,
+  },
+  title: { 
+    fontSize: 24, 
+    fontWeight: "bold", 
+    color: "#28a745",
+    marginBottom: 8,
+    textAlign: "center",
+  },
+  subtitle: {
+    fontSize: 14,
+    color: "#666",
+    textAlign: "center",
+    lineHeight: 20,
+  },
+  formContainer: {
+    width: "100%",
+  },
+  inputContainer: {
+    marginBottom: 24,
+  },
+  label: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#333",
+    marginBottom: 8,
+  },
+  emailRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 8,
+  },
+  input: {
+    height: 56,
+    borderWidth: 1.5,
+    borderColor: "#e1e5e9",
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    fontSize: 16,
+    backgroundColor: "#f8f9fa",
+    color: "#333",
+  },
+  passwordContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    borderWidth: 1.5,
+    borderColor: "#e1e5e9",
+    borderRadius: 12,
+    backgroundColor: "#f8f9fa",
+    paddingRight: 12,
+  },
+  passwordInput: {
+    flex: 1,
+    height: 56,
+    fontSize: 16,
+    paddingHorizontal: 16,
+    color: "#333",
+  },
+  eyeButton: {
+    padding: 4,
+  },
+  inputError: {
+    borderColor: "#dc3545",
+    backgroundColor: "#fdf2f2",
+  },
+  errorText: {
+    color: "#dc3545",
+    fontSize: 14,
+    marginTop: 6,
+    fontWeight: "500",
+  },
+  helperText: {
+    color: "#666",
+    fontSize: 12,
+    marginTop: 6,
+    fontStyle: "italic",
+  },
+  actionButton: {
+    backgroundColor: "#28a745",
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderRadius: 8,
+    marginLeft: 12,
+    minWidth: 80,
+    alignItems: "center",
+  },
+  actionText: {
+    color: "#fff",
+    fontWeight: "600",
+    fontSize: 14,
+  },
+  verificationContainer: {
+    marginTop: 12,
+  },
+  registerButton: {
+    backgroundColor: "#28a745",
+    paddingVertical: 16,
+    borderRadius: 12,
+    alignItems: "center",
+    marginTop: 20,
+    shadowColor: "#28a745",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 6,
+  },
+  registerButtonDisabled: {
+    backgroundColor: "#ccc",
+    shadowColor: "#ccc",
+  },
+  registerText: {
+    color: "#fff",
+    fontSize: 18,
+    fontWeight: "700",
+  },
+  progressContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    marginTop: 40,
+    paddingHorizontal: 20,
+  },
+  progressStep: {
+    alignItems: "center",
+  },
+  progressDot: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    marginBottom: 4,
+  },
+  progressDotCompleted: {
+    backgroundColor: "#28a745",
+  },
+  progressDotCurrent: {
+    backgroundColor: "#28a745",
+    borderWidth: 2,
+    borderColor: "#28a745",
+  },
+  progressLine: {
+    flex: 1,
+    height: 2,
+    backgroundColor: "#e1e5e9",
+    marginHorizontal: 10,
+    maxWidth: 60,
+  },
+  progressText: {
+    fontSize: 12,
+    color: "#666",
+    fontWeight: "500",
+  },
 });
