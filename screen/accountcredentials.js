@@ -94,6 +94,8 @@ export default function AccountCredentials({ navigation, route }) {
       } else {
         showAlert("Error", result.message || "Failed to send code.");
       }
+
+      
     } catch (error) {
       console.error("Verification error:", error);
       showAlert("Error", "Server error. Try again later.");

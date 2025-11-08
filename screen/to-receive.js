@@ -10,6 +10,7 @@ import {
   Alert,
   RefreshControl,
   SafeAreaView,
+  Clipboard,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { BASE_URL } from '../config';
@@ -29,6 +30,7 @@ const colors = {
   blue: '#2196F3',
   purple: '#9C27B0',
   background: '#F8F9FA',
+  infoBlue: '#2196F3',
 };
 
 const ToReceive = ({ route, navigation }) => {
@@ -42,6 +44,12 @@ const ToReceive = ({ route, navigation }) => {
   });
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+
+  // Copy order code to clipboard
+  const copyOrderCode = (orderCode) => {
+    Clipboard.setString(orderCode);
+    Alert.alert('Copied!', `Order code "${orderCode}" copied to clipboard.`);
+  };
 
   const parsePrice = (priceString) => {
     if (typeof priceString !== 'string') return 0;
@@ -167,6 +175,8 @@ const ToReceive = ({ route, navigation }) => {
   const renderItem = ({ item, index }) => {
     const statusColor = getStatusColor(item.status);
     const statusIcon = getStatusIcon(item.status);
+    const isCashPayment = item.payment_method === 'Cash';
+    const isGCashPayment = item.payment_method === 'GCash';
 
     return (
       <View style={[
@@ -177,8 +187,41 @@ const ToReceive = ({ route, navigation }) => {
         {/* Order Header */}
         <View style={styles.orderHeader}>
           <View style={styles.orderInfo}>
-            <Text style={styles.orderDate}>{formatDate(item.Orderdate)}</Text>
+            <View style={styles.orderCodeContainer}>
+              <Text style={styles.orderDate}>{formatDate(item.Orderdate)}</Text>
+              <TouchableOpacity
+                style={styles.copyButton}
+                onPress={() => copyOrderCode(item.order_code)}
+              >
+                <Ionicons name="copy-outline" size={14} color={colors.primaryGreen} />
+              </TouchableOpacity>
+            </View>
             <Text style={styles.orderTime}>{formatTime(item.Orderdate)}</Text>
+            
+            {/* Display Order Code */}
+            <Text style={styles.orderCode}>Order #: {item.order_code || 'N/A'}</Text>
+            
+            {/* Display Payment Method */}
+            {item.payment_method && (
+              <View style={styles.paymentMethodContainer}>
+                <Ionicons 
+                  name={isGCashPayment ? "phone-portrait-outline" : "cash-outline"} 
+                  size={12} 
+                  color={colors.textSecondary} 
+                />
+                <Text style={styles.paymentMethodText}>
+                  Payment: {item.payment_method}
+                </Text>
+              </View>
+            )}
+            
+            {/* Display Location */}
+            {item.location_address && (
+              <View style={styles.locationContainer}>
+                <Ionicons name="location-outline" size={12} color={colors.textSecondary} />
+                <Text style={styles.locationText}>{item.location_address}</Text>
+              </View>
+            )}
           </View>
           <View style={[styles.statusBadge, { backgroundColor: statusColor + '20' }]}>
             <Ionicons name={statusIcon} size={14} color={statusColor} />
@@ -187,6 +230,16 @@ const ToReceive = ({ route, navigation }) => {
             </Text>
           </View>
         </View>
+
+        {/* Delivery Information for Cash Payments */}
+        {isCashPayment && (
+          <View style={styles.deliveryInfoContainer}>
+            <Ionicons name="information-circle-outline" size={16} color={colors.infoBlue} />
+            <Text style={styles.deliveryInfoText}>
+              Your order is out for delivery, please prepare exact amount.
+            </Text>
+          </View>
+        )}
 
         {/* Order Items */}
         <View style={styles.itemsContainer}>
@@ -575,15 +628,51 @@ const styles = StyleSheet.create({
   orderInfo: {
     flex: 1,
   },
+  orderCodeContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 2,
+  },
   orderDate: {
     fontSize: 16,
     fontWeight: 'bold',
     color: colors.textPrimary,
-    marginBottom: 2,
+    marginRight: 8,
+  },
+  copyButton: {
+    padding: 4,
   },
   orderTime: {
     fontSize: 13,
     color: colors.textSecondary,
+    marginBottom: 4,
+  },
+  orderCode: {
+    fontSize: 13,
+    color: colors.textPrimary,
+    fontWeight: '500',
+    marginBottom: 4,
+  },
+  paymentMethodContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 4,
+  },
+  paymentMethodText: {
+    fontSize: 12,
+    color: colors.textSecondary,
+    marginLeft: 4,
+  },
+  locationContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 4,
+  },
+  locationText: {
+    fontSize: 12,
+    color: colors.textSecondary,
+    marginLeft: 4,
+    flex: 1,
   },
   statusBadge: {
     flexDirection: 'row',
@@ -596,6 +685,21 @@ const styles = StyleSheet.create({
   statusText: {
     fontSize: 12,
     fontWeight: '600',
+  },
+  deliveryInfoContainer: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    backgroundColor: '#E3F2FD',
+    padding: 12,
+    borderRadius: 8,
+    marginBottom: 16,
+    gap: 8,
+  },
+  deliveryInfoText: {
+    fontSize: 12,
+    color: colors.infoBlue,
+    fontWeight: '500',
+    flex: 1,
   },
   itemsContainer: {
     borderTopWidth: 1,

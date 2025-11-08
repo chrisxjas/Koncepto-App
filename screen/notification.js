@@ -7,6 +7,7 @@ import {
   StyleSheet,
   TouchableOpacity,
   RefreshControl,
+  Alert,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useNavigation, useRoute } from "@react-navigation/native";
@@ -47,24 +48,65 @@ export default function Notification() {
     }
   };
 
-  const markAsRead = async () => {
+  const markAsRead = async (notificationId = null) => {
     try {
+      const payload = notificationId 
+        ? { user_id: user.id, notification_id: notificationId }
+        : { user_id: user.id };
+
       const response = await fetch(`${BASE_URL}/mark_as_read.php`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ user_id: user.id })
+        body: JSON.stringify(payload)
       });
       
       if (response.ok) {
         const result = await response.json();
         if (result.success) {
-          console.log('Notifications marked as read');
+          console.log('Notification marked as read');
+          // Update local state to reflect read status
+          if (notificationId) {
+            setNotifications(prev => prev.map(notif => 
+              notif.id === notificationId ? { ...notif, is_read: 1 } : notif
+            ));
+          } else {
+            // Mark all as read
+            setNotifications(prev => prev.map(notif => ({ ...notif, is_read: 1 })));
+          }
         }
       }
     } catch (error) {
       console.error("Error marking as read:", error);
+    }
+  };
+
+  const markSingleAsRead = async (notificationId) => {
+    try {
+      const response = await fetch(`${BASE_URL}/mark_single_as_read.php`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ 
+          user_id: user.id, 
+          notification_id: notificationId 
+        })
+      });
+      
+      if (response.ok) {
+        const result = await response.json();
+        if (result.success) {
+          console.log('Single notification marked as read');
+          // Update local state to reflect read status
+          setNotifications(prev => prev.map(notif => 
+            notif.id === notificationId ? { ...notif, is_read: 1 } : notif
+          ));
+        }
+      }
+    } catch (error) {
+      console.error("Error marking single as read:", error);
     }
   };
 
@@ -81,15 +123,43 @@ export default function Notification() {
     return () => clearInterval(interval);
   }, []);
 
-  // Mark as read when component mounts and notifications are loaded
-  useEffect(() => {
-    if (notifications.length > 0) {
-      markAsRead();
-    }
-  }, [notifications]);
+  // REMOVED: Auto-mark all as read when component mounts
 
-  const handleNotificationPress = (notification) => {
-    navigation.navigate('Message', { user });
+  const handleNotificationPress = async (notification) => {
+    // Check if it's a message-related notification
+    const isMessageRelated = notification.message?.toLowerCase().includes('message') || 
+                            notification.message?.toLowerCase().includes('chat') ||
+                            notification.type === 'message';
+
+    if (isMessageRelated) {
+      // Mark as read first, then navigate
+      if (notification.is_read == 0) {
+        await markSingleAsRead(notification.id);
+      }
+      // Navigate to message screen for message-related notifications
+      navigation.navigate('Message', { user });
+    } else {
+      // For non-message notifications, mark as read and show the content
+      if (notification.is_read == 0) {
+        await markSingleAsRead(notification.id);
+      }
+      
+      // Show notification content in an alert
+      Alert.alert(
+        "Notification",
+        notification.message,
+        [{ text: "OK" }]
+      );
+    }
+  };
+
+  const handleMarkAllAsRead = () => {
+    if (notifications.some(notif => notif.is_read == 0)) {
+      markAsRead();
+      Alert.alert("Success", "All notifications marked as read");
+    } else {
+      Alert.alert("Info", "All notifications are already read");
+    }
   };
 
   if (loading) {
@@ -109,7 +179,9 @@ export default function Notification() {
           <Ionicons name="arrow-back" size={24} color="#fff" />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Notifications</Text>
-        <View style={{ width: 24 }} />
+        <TouchableOpacity onPress={handleMarkAllAsRead}>
+          <Text style={styles.markAllReadText}>Mark All Read</Text>
+        </TouchableOpacity>
       </View>
 
       <ScrollView 
@@ -154,6 +226,14 @@ export default function Notification() {
                     <Text style={styles.unreadText}>New</Text>
                   </View>
                 )}
+                {/* Show type indicator */}
+                <View style={styles.typeIndicator}>
+                  <Text style={styles.typeText}>
+                    {item.message?.toLowerCase().includes('message') || 
+                     item.message?.toLowerCase().includes('chat') ? 
+                     "Message" : "Notification"}
+                  </Text>
+                </View>
               </View>
             </TouchableOpacity>
           ))
@@ -179,6 +259,11 @@ const styles = StyleSheet.create({
     color: "#fff", 
     fontSize: 20, 
     fontWeight: "bold" 
+  },
+  markAllReadText: {
+    color: "#fff",
+    fontSize: 14,
+    fontWeight: "600",
   },
   container: {
     padding: 16,
@@ -212,6 +297,7 @@ const styles = StyleSheet.create({
   date: {
     fontSize: 12,
     color: "#666",
+    marginTop: 4,
   },
   noData: {
     textAlign: "center",
@@ -244,5 +330,19 @@ const styles = StyleSheet.create({
     color: "#fff",
     fontSize: 10,
     fontWeight: "bold",
+  },
+  typeIndicator: {
+    position: "absolute",
+    bottom: 10,
+    right: 10,
+    backgroundColor: "#E0E0E0",
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 8,
+  },
+  typeText: {
+    color: "#666",
+    fontSize: 10,
+    fontWeight: "500",
   },
 });

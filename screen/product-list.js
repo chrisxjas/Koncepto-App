@@ -75,7 +75,7 @@ const ProductList = ({ route }) => {
   useEffect(() => {
     fetchUnreadCount();
     
-    // Poll every 30 seconds
+    // Poll every 30 seconds for new notifications
     const interval = setInterval(fetchUnreadCount, 30000);
     return () => clearInterval(interval);
   }, [user]);
@@ -264,6 +264,8 @@ const ProductList = ({ route }) => {
   const onRefresh = async () => {
     setRefreshing(true);
     await loadAllData();
+    // Also refresh notification count on pull-to-refresh
+    await fetchUnreadCount();
     setRefreshing(false);
   };
 
@@ -488,7 +490,7 @@ const ProductList = ({ route }) => {
       <View style={styles.header}>
         <Image source={require("../assets/logo.png")} style={styles.logo} />
 
-        {/* ✅ Simple Notification Icon - no error handling UI */}
+        {/* ✅ Notification Icon with Badge */}
         <TouchableOpacity
           style={styles.notifContainer}
           onPress={() => navigation.navigate("Notification", { user })}

@@ -10,6 +10,8 @@ import {
     SafeAreaView,
     Animated,
     Dimensions,
+    Clipboard,
+    Alert,
 } from 'react-native';
 import axios from 'axios';
 import { useNavigation } from '@react-navigation/native';
@@ -19,7 +21,7 @@ import Refresh from './essentials/refresh';
 import AlertMessage from './essentials/AlertMessage';
 
 const { width } = Dimensions.get('window');
-const STATUS_OPTIONS = ["pending", "confirmed", "to deliver", "delivered"];
+const STATUS_OPTIONS = ["pending", "confirmed", "to deliver", "delivered", "denied"];
 
 // Koncepto Color Theme
 const colors = {
@@ -35,6 +37,7 @@ const colors = {
     errorRed: '#e53935',
     warningOrange: '#FF9800',
     background: '#F8F9FA',
+    deniedRed: '#D32F2F',
 };
 
 const ViewCustomOrder = ({ route }) => {
@@ -52,6 +55,7 @@ const ViewCustomOrder = ({ route }) => {
         confirmed: 0,
         "to deliver": 0,
         delivered: 0,
+        denied: 0,
     });
 
     // Animated values per status
@@ -60,6 +64,7 @@ const ViewCustomOrder = ({ route }) => {
         confirmed: new Animated.Value(1),
         "to deliver": new Animated.Value(1),
         delivered: new Animated.Value(1),
+        denied: new Animated.Value(1),
     }).current;
 
     const animateBadge = (status) => {
@@ -78,6 +83,12 @@ const ViewCustomOrder = ({ route }) => {
         setAlertTitle(title);
         setAlertMessage(message);
         setAlertVisible(true);
+    };
+
+    // Copy order code to clipboard
+    const copyOrderCode = (orderCode) => {
+        Clipboard.setString(orderCode);
+        Alert.alert('Copied!', `Order code "${orderCode}" copied to clipboard.`);
     };
 
     // Fetch orders from backend
@@ -101,7 +112,7 @@ const ViewCustomOrder = ({ route }) => {
                 setCustomOrders(filteredOrders);
 
                 // Count orders per status
-                const counts = { pending: 0, confirmed: 0, "to deliver": 0, delivered: 0 };
+                const counts = { pending: 0, confirmed: 0, "to deliver": 0, delivered: 0, denied: 0 };
                 orders.forEach(order => {
                     if (counts[order.status] !== undefined) counts[order.status]++;
                 });
@@ -115,7 +126,7 @@ const ViewCustomOrder = ({ route }) => {
             } else {
                 setError("Failed to fetch custom orders.");
                 setCustomOrders([]);
-                setStatusCounts({ pending: 0, confirmed: 0, "to deliver": 0, delivered: 0 });
+                setStatusCounts({ pending: 0, confirmed: 0, "to deliver": 0, delivered: 0, denied: 0 });
             }
         } catch (err) {
             setError(err.message || "An unexpected error occurred.");
@@ -198,6 +209,7 @@ const ViewCustomOrder = ({ route }) => {
             case 'confirmed': return colors.primaryGreen;
             case 'to deliver': return colors.accentGreen;
             case 'delivered': return colors.darkerGreen;
+            case 'denied': return colors.deniedRed;
             default: return colors.textSecondary;
         }
     };
@@ -208,30 +220,46 @@ const ViewCustomOrder = ({ route }) => {
             case 'confirmed': return 'checkmark-circle-outline';
             case 'to deliver': return 'cube-outline';
             case 'delivered': return 'checkmark-done-outline';
+            case 'denied': return 'close-circle-outline';
             default: return 'ellipse-outline';
         }
     };
 
-    const renderOrderItem = (item, index) => (
-        <View key={item.item_id?.toString() || index.toString()} style={styles.itemCard}>
+    const renderOrderItem = (item, index, orderStatus) => (
+        <View key={item.item_id?.toString() || index.toString()} style={[
+            styles.itemCard,
+            orderStatus === 'denied' && styles.deniedItemCard
+        ]}>
             {item.photo ? (
                 <Image
                     source={{ uri: `${BASE_URL.replace('/api', '')}/../storage/custom-orders/${item.photo}` }}
-                    style={styles.itemImage}
+                    style={[
+                        styles.itemImage,
+                        orderStatus === 'denied' && styles.deniedItemImage
+                    ]}
                     resizeMode="cover"
                     onError={(e) => console.log("Image load error:", e.nativeEvent.error)}
                 />
             ) : (
-                <View style={[styles.itemImage, styles.iconContainer]}>
-                    <Ionicons name="image-outline" size={30} color={colors.textSecondary} />
+                <View style={[styles.itemImage, styles.iconContainer, orderStatus === 'denied' && styles.deniedItemImage]}>
+                    <Ionicons name="image-outline" size={30} color={orderStatus === 'denied' ? colors.deniedRed : colors.textSecondary} />
                 </View>
             )}
             <View style={styles.itemDetails}>
-                <Text style={styles.itemName} numberOfLines={2}>{item.item_name || 'N/A'}</Text>
-                <Text style={styles.itemText}><Text style={styles.label}>Brand:</Text> {item.brand || 'N/A'}</Text>
-                <Text style={styles.itemText}><Text style={styles.label}>Quantity:</Text> {item.quantity || 'N/A'} {item.unit || ''}</Text>
+                <Text style={[
+                    styles.itemName,
+                    orderStatus === 'denied' && styles.deniedText
+                ]} numberOfLines={2}>{item.item_name || 'N/A'}</Text>
+                <Text style={[
+                    styles.itemText,
+                    orderStatus === 'denied' && styles.deniedText
+                ]}><Text style={styles.label}>Brand:</Text> {item.brand || 'N/A'}</Text>
+                <Text style={[
+                    styles.itemText,
+                    orderStatus === 'denied' && styles.deniedText
+                ]}><Text style={styles.label}>Quantity:</Text> {item.quantity || 'N/A'} {item.unit || ''}</Text>
 
-                {selectedStatus !== "pending" && (
+                {orderStatus !== "pending" && orderStatus !== "denied" && (
                     <>
                         <Text style={styles.itemText}><Text style={styles.label}>Price:</Text> ₱{parseFloat(item.price || 0).toFixed(2)}</Text>
                         <Text style={styles.itemTotalPrice}><Text style={styles.label}>Total:</Text> ₱{parseFloat(item.total_price || 0).toFixed(2)}</Text>
@@ -239,11 +267,26 @@ const ViewCustomOrder = ({ route }) => {
                 )}
 
                 {item.description && (
-                    <Text style={styles.itemDescription} numberOfLines={2}>
+                    <Text style={[
+                        styles.itemDescription,
+                        orderStatus === 'denied' && styles.deniedText
+                    ]} numberOfLines={2}>
                         <Text style={styles.label}>Desc:</Text> {item.description}
                     </Text>
                 )}
-                <Text style={styles.itemText}><Text style={styles.label}>Created:</Text> {formatDate(item.item_created_at)}</Text>
+                <Text style={[
+                    styles.itemText,
+                    orderStatus === 'denied' && styles.deniedText
+                ]}><Text style={styles.label}>Created:</Text> {formatDate(item.item_created_at)}</Text>
+
+                {orderStatus === 'denied' && (
+                    <View style={styles.deniedMessageContainer}>
+                        <Ionicons name="warning-outline" size={16} color={colors.deniedRed} />
+                        <Text style={styles.deniedMessageText}>
+                            The admin declined this request. Kindly copy order code and reach it out to us through message.
+                        </Text>
+                    </View>
+                )}
             </View>
         </View>
     );
@@ -280,10 +323,21 @@ const ViewCustomOrder = ({ route }) => {
                 refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primaryGreen} colors={[colors.primaryGreen]} />}
             >
                 {customOrders.map((order) => (
-                    <View key={order.order_id?.toString()} style={styles.orderCard}>
+                    <View key={order.order_id?.toString()} style={[
+                        styles.orderCard,
+                        order.status === 'denied' && styles.deniedOrderCard
+                    ]}>
                         <View style={styles.orderHeader}>
                             <View style={styles.orderTitleRow}>
-                                <Text style={styles.orderTitle}>Order #{order.order_code || 'N/A'}</Text>
+                                <View style={styles.orderCodeContainer}>
+                                    <Text style={styles.orderTitle}>Order #{order.order_code || 'N/A'}</Text>
+                                    <TouchableOpacity
+                                        style={styles.copyButton}
+                                        onPress={() => copyOrderCode(order.order_code)}
+                                    >
+                                        <Ionicons name="copy-outline" size={16} color={colors.primaryGreen} />
+                                    </TouchableOpacity>
+                                </View>
                                 <View style={[styles.statusBadge, { backgroundColor: getStatusColor(order.status) + '20' }]}>
                                     <Ionicons name={getStatusIcon(order.status)} size={14} color={getStatusColor(order.status)} />
                                     <Text style={[styles.statusText, { color: getStatusColor(order.status) }]}>
@@ -292,12 +346,20 @@ const ViewCustomOrder = ({ route }) => {
                                 </View>
                             </View>
                             <Text style={styles.orderDate}>Placed: {formatDate(order.order_created_at)}</Text>
+                            
+                            {/* Display Location */}
+                            {order.location_address && (
+                                <View style={styles.locationContainer}>
+                                    <Ionicons name="location-outline" size={14} color={colors.textSecondary} />
+                                    <Text style={styles.locationText}>{order.location_address}</Text>
+                                </View>
+                            )}
                         </View>
 
                         <View style={styles.itemsContainer}>
                             <Text style={styles.itemsSectionTitle}>Order Items</Text>
                             {order.items && order.items.length > 0
-                                ? order.items.map((item, index) => renderOrderItem(item, index))
+                                ? order.items.map((item, index) => renderOrderItem(item, index, order.status))
                                 : <Text style={styles.noItemsText}>No items found for this order.</Text>
                             }
                         </View>
@@ -516,24 +578,48 @@ const styles = StyleSheet.create({
         borderLeftWidth: 4,
         borderLeftColor: colors.primaryGreen,
     },
+    deniedOrderCard: {
+        borderLeftColor: colors.deniedRed,
+        backgroundColor: '#FFF5F5',
+    },
     orderHeader: { 
         marginBottom: 16 
     },
     orderTitleRow: {
         flexDirection: 'row',
         justifyContent: 'space-between',
-        alignItems: 'center',
+        alignItems: 'flex-start',
         marginBottom: 8,
+    },
+    orderCodeContainer: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        flex: 1,
     },
     orderTitle: { 
         fontSize: 18, 
         fontWeight: 'bold', 
         color: colors.textPrimary,
-        flex: 1,
+        marginRight: 8,
+    },
+    copyButton: {
+        padding: 4,
     },
     orderDate: { 
         fontSize: 14, 
-        color: colors.textSecondary 
+        color: colors.textSecondary,
+        marginBottom: 4,
+    },
+    locationContainer: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        marginTop: 4,
+    },
+    locationText: {
+        fontSize: 14,
+        color: colors.textSecondary,
+        marginLeft: 6,
+        flex: 1,
     },
     statusBadge: {
         flexDirection: 'row',
@@ -569,12 +655,20 @@ const styles = StyleSheet.create({
         borderColor: colors.lightGreen,
         alignItems: 'center' 
     },
+    deniedItemCard: {
+        backgroundColor: '#FFEBEE',
+        borderColor: colors.deniedRed,
+        opacity: 0.8,
+    },
     itemImage: { 
         width: 80, 
         height: 80, 
         borderRadius: 8, 
         marginRight: 12, 
         backgroundColor: colors.greyBorder 
+    },
+    deniedItemImage: {
+        opacity: 0.6,
     },
     iconContainer: {
         justifyContent: 'center',
@@ -593,6 +687,10 @@ const styles = StyleSheet.create({
         fontSize: 14, 
         color: colors.textSecondary, 
         marginBottom: 2 
+    },
+    deniedText: {
+        color: colors.deniedRed,
+        opacity: 0.8,
     },
     itemTotalPrice: { 
         fontSize: 15, 
@@ -616,6 +714,21 @@ const styles = StyleSheet.create({
         color: colors.textSecondary, 
         textAlign: 'center', 
         paddingVertical: 16 
+    },
+    deniedMessageContainer: {
+        flexDirection: 'row',
+        alignItems: 'flex-start',
+        backgroundColor: '#FFCDD2',
+        padding: 12,
+        borderRadius: 8,
+        marginTop: 8,
+        gap: 8,
+    },
+    deniedMessageText: {
+        fontSize: 12,
+        color: colors.deniedRed,
+        fontWeight: '500',
+        flex: 1,
     },
     cancelButton: { 
         flexDirection: 'row', 

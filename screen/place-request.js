@@ -257,110 +257,126 @@ const PlaceRequest = ({ route, navigation }) => {
     setAlertVisible(true);
   };
 
-  const handleGCashCheckout = async (isInitialPayment = false) => {
-    if (!selectedItems || selectedItems.length === 0) {
-      showAlert('Error', 'No items selected for checkout.');
-      return;
+
+const handleGCashCheckout = async (isInitialPayment = false) => {
+  if (!selectedItems || selectedItems.length === 0) {
+    showAlert('Error', 'No items selected for checkout.');
+    return;
+  }
+
+  if (!selectedLocationObj) {
+    showAlert('Error', 'Please select a shipping address before checkout.');
+    return;
+  }
+
+  try {
+    const checkoutAmount = isInitialPayment ? (total * 0.3) : total;
+    const payload = {
+      user_id: user.id,
+      amount: parseFloat(checkoutAmount.toFixed(2)),
+      payment_method: 'gcash',
+      items: selectedItems.map(item => ({ 
+        product_id: item.product_id, 
+        quantity: item.quantity, 
+        price: parseFloat(item.price) 
+      })),
+      location_id: selectedLocationObj.id // ✅ Added location_id
+    };
+
+    const res = await fetch(`${BASE_URL}/create_checkout.php`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+
+    const data = await res.json();
+    if (data.success && data.checkout_url) {
+      Linking.openURL(data.checkout_url);
+    } else {
+      console.log('PayMongo error response:', data);
+      showAlert('Error', data.message || 'Unable to create GCash checkout.');
     }
+  } catch (error) {
+    console.error(error);
+    showAlert('Error', 'Something went wrong while creating checkout.');
+  }
+};
 
-    try {
-      const checkoutAmount = isInitialPayment ? (total * 0.3) : total;
-      const payload = {
-        user_id: user.id,
-        amount: parseFloat(checkoutAmount.toFixed(2)),
-        payment_method: 'gcash',
-        items: selectedItems.map(item => ({ product_id: item.product_id, quantity: item.quantity, price: parseFloat(item.price) })),
-      };
+// FIXED: handlePlaceRequest with location_id
+const handlePlaceRequest = async (isInitialPayment = false) => {
+  if (!selectedPayment) { 
+    showAlert('Error', 'Please select a payment method.'); 
+    return; 
+  }
+  
+  if ((selectedPayment === 'GCash' || (isInitialPayment && selectedPayment === 'GCash')) && !paymentProof) {
+    showAlert('Error', 'Please upload your payment proof.');
+    return;
+  }
 
-      const res = await fetch(`${BASE_URL}/create_checkout.php`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
+  if ((selectedPayment === 'GCash' || (isInitialPayment && selectedPayment === 'GCash')) && !extractedRefCode) {
+    showAlert('Invalid Payment Proof', 'Reference number is required for GCash payments.');
+    return;
+  }
 
-      const data = await res.json();
-      if (data.success && data.checkout_url) {
-        Linking.openURL(data.checkout_url);
-      } else {
-        console.log('PayMongo error response:', data);
-        showAlert('Error', data.message || 'Unable to create GCash checkout.');
-      }
-    } catch (error) {
-      console.error(error);
-      showAlert('Error', 'Something went wrong while creating checkout.');
-    }
-  };
+  if (!selectedLocationObj) {
+    showAlert('No location', 'Please select a shipping address before placing the request.');
+    return;
+  }
 
-  // FIXED: handlePlaceRequest with consistent 'Ref_code' naming
-  const handlePlaceRequest = async (isInitialPayment = false) => {
-    if (!selectedPayment) { 
-      showAlert('Error', 'Please select a payment method.'); 
-      return; 
-    }
+  setRefreshing(true);
+  try {
+    const formData = new FormData();
+    formData.append('user_id', user.id);
+    formData.append('total_price', total);
+    formData.append('payment_method', selectedPayment);
+    formData.append('order_date', new Date().toISOString().split('T')[0]);
+    formData.append('ship_date', '2025-07-25');
+    formData.append('is_initial_payment', isInitialPayment ? 1 : 0);
+    formData.append('items', JSON.stringify(selectedItems.map(item => ({ 
+      product_id: item.product_id, 
+      quantity: item.quantity, 
+      price: item.price 
+    }))));
+    formData.append('location_id', selectedLocationObj.id); // ✅ Added location_id
     
-    if ((selectedPayment === 'GCash' || (isInitialPayment && selectedPayment === 'GCash')) && !paymentProof) {
-      showAlert('Error', 'Please upload your payment proof.');
-      return;
+    // ✅ FIXED: Use 'Ref_code' (capital R) to match database column
+    if (extractedRefCode) {
+      formData.append('Ref_code', extractedRefCode);
     }
 
-    if ((selectedPayment === 'GCash' || (isInitialPayment && selectedPayment === 'GCash')) && !extractedRefCode) {
-      showAlert('Invalid Payment Proof', 'Reference number is required for GCash payments.');
-      return;
+    if (paymentProof) {
+      const filename = paymentProof.split('/').pop();
+      const match = /\.(\w+)$/.exec(filename);
+      const type = match ? `image/${match[1]}` : `image/jpeg`;
+      formData.append('payment_proof', { uri: paymentProof, name: filename, type });
     }
 
-    if (!selectedLocationObj) {
-      showAlert('No location', 'Please select a shipping address before placing the request.');
-      return;
+    console.log('Sending payment request with location_id:', selectedLocationObj.id, 'and Ref_code:', extractedRefCode);
+
+    const response = await fetch(`${BASE_URL}/place-request.php`, { 
+      method: 'POST', 
+      body: formData 
+    });
+    const result = await response.json();
+
+    console.log('Server response:', result);
+
+    if (result.success) {
+      showAlert('Success', 'Your request has been placed!');
+      if (onCheckoutSuccess) onCheckoutSuccess();
+      navigation.navigate(result.screen === 'to-confirm' ? 'ToConfirm' : 'ToPay', { user });
+    } else {
+      showAlert('Error', result.message || 'Failed to place request.');
     }
+  } catch (error) {
+    console.error('Request error:', error);
+    showAlert('Error', 'Something went wrong while placing the request. Please try again.');
+  } finally {
+    setRefreshing(false);
+  }
+};
 
-    setRefreshing(true);
-    try {
-      const formData = new FormData();
-      formData.append('user_id', user.id);
-      formData.append('total_price', total);
-      formData.append('payment_method', selectedPayment);
-      formData.append('order_date', new Date().toISOString().split('T')[0]);
-      formData.append('ship_date', '2025-07-25');
-      formData.append('is_initial_payment', isInitialPayment ? 1 : 0);
-      formData.append('items', JSON.stringify(selectedItems.map(item => ({ product_id: item.product_id, quantity: item.quantity, price: item.price }))));
-      formData.append('location_id', selectedLocationObj.id);
-      
-      // ✅ FIXED: Use 'Ref_code' (capital R) to match database column
-      if (extractedRefCode) {
-        formData.append('Ref_code', extractedRefCode);
-      }
-
-      if (paymentProof) {
-        const filename = paymentProof.split('/').pop();
-        const match = /\.(\w+)$/.exec(filename);
-        const type = match ? `image/${match[1]}` : `image/jpeg`;
-        formData.append('payment_proof', { uri: paymentProof, name: filename, type });
-      }
-
-      console.log('Sending payment request with Ref_code:', extractedRefCode);
-
-      const response = await fetch(`${BASE_URL}/place-request.php`, { 
-        method: 'POST', 
-        body: formData 
-      });
-      const result = await response.json();
-
-      console.log('Server response:', result);
-
-      if (result.success) {
-        showAlert('Success', 'Your request has been placed!');
-        if (onCheckoutSuccess) onCheckoutSuccess();
-        navigation.navigate(result.screen === 'to-confirm' ? 'ToConfirm' : 'ToPay', { user });
-      } else {
-        showAlert('Error', result.message || 'Failed to place request.');
-      }
-    } catch (error) {
-      console.error('Request error:', error);
-      showAlert('Error', 'Something went wrong while placing the request. Please try again.');
-    } finally {
-      setRefreshing(false);
-    }
-  };
 
   const renderItem = ({ item }) => (
     <View style={styles.itemContainer}>

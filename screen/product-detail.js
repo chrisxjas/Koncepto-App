@@ -92,62 +92,6 @@ const ProductDetail = ({ route, navigation }) => {
       });
   };
 
-  const handleLikeToggle = (feedbackId, currentLikeCount, hasUserLiked) => {
-    setFeedbacks(prev =>
-      prev.map(fb =>
-        fb.id === feedbackId
-          ? {
-              ...fb,
-              like: hasUserLiked ? Math.max(0, currentLikeCount - 1) : currentLikeCount + 1,
-              user_liked_this_feedback: !hasUserLiked,
-            }
-          : fb
-      )
-    );
-
-    fetch(`${BASE_URL}/toggle-feedback-like.php`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        feedback_id: feedbackId,
-        user_id: user.id,
-        action: hasUserLiked ? 'unlike' : 'like',
-      }),
-    })
-      .then(res => res.json())
-      .then(data => {
-        if (!data.success) {
-          showAlert('Error', data.message || 'Failed to update like status.');
-          // Revert UI change if failed
-          setFeedbacks(prev =>
-            prev.map(fb =>
-              fb.id === feedbackId
-                ? {
-                    ...fb,
-                    like: hasUserLiked ? currentLikeCount : Math.max(0, currentLikeCount - 1),
-                    user_liked_this_feedback: hasUserLiked,
-                  }
-                : fb
-            )
-          );
-        }
-      })
-      .catch(err => {
-        console.error('Toggle like error:', err);
-        showAlert('Error', 'Network error while updating like status.');
-        setFeedbacks(prev =>
-          prev.map(fb =>
-            fb.id === feedbackId
-              ? {
-                  ...fb,
-                  like: hasUserLiked ? currentLikeCount : Math.max(0, currentLikeCount - 1),
-                  user_liked_this_feedback: hasUserLiked,
-                }
-              : fb
-          )
-        );
-      });
-  };
 
   const handleAddToCart = () => {
     if (!user?.id || !product?.id) {
@@ -279,17 +223,6 @@ const ProductDetail = ({ route, navigation }) => {
                 ))}
               </View>
               <Text style={styles.feedbackText}>{fb.feedback}</Text>
-              <TouchableOpacity
-                style={styles.likeRow}
-                onPress={() => handleLikeToggle(fb.id, fb.like || 0, fb.user_liked_this_feedback)}
-              >
-                <Ionicons
-                  name={fb.user_liked_this_feedback ? 'heart' : 'heart-outline'}
-                  size={14}
-                  color={colors.red}
-                />
-                <Text style={styles.likeCount}>{fb.like || 0}</Text>
-              </TouchableOpacity>
             </View>
           ))}
         </View>

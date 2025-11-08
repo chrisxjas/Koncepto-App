@@ -15,12 +15,13 @@ import {
   SafeAreaView,
   KeyboardAvoidingView,
   Pressable,
+  RefreshControl,
 } from 'react-native';
 import Checkbox from 'expo-checkbox';
 import * as ImagePicker from 'expo-image-picker';
 import * as FileSystem from 'expo-file-system';
 import { Ionicons } from '@expo/vector-icons';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { BASE_URL } from '../config';
 
@@ -54,6 +55,9 @@ const CustomOrder = ({ route }) => {
   const [itemGathered, setItemGathered] = useState(false);
 
   const [categories, setCategories] = useState([]);
+  const [userLocation, setUserLocation] = useState({ address: '', cp_no: user?.cp_no || '' });
+  const [selectedLocationObj, setSelectedLocationObj] = useState(null);
+  const [refreshing, setRefreshing] = useState(false);
 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [successModalVisible, setSuccessModalVisible] = useState(false);
@@ -75,7 +79,15 @@ const CustomOrder = ({ route }) => {
       }
     })();
     fetchCategories();
+    loadSavedOrDefaultLocation();
   }, []);
+
+  // Reload location when returning from EditLocation screen
+  useFocusEffect(
+    React.useCallback(() => {
+      loadSavedOrDefaultLocation();
+    }, [])
+  );
 
   const fetchCategories = async () => {
     try {
@@ -98,6 +110,40 @@ const CustomOrder = ({ route }) => {
       console.error('Network error fetching categories:', error);
       setErrorMessage('Failed to connect to the server to fetch categories. Please check your network connection.');
       setErrorModalVisible(true);
+    }
+  };
+
+  // Load user location
+  const loadSavedOrDefaultLocation = async () => {
+    if (!user?.id) return;
+    setRefreshing(true);
+    try {
+      const response = await fetch(`${BASE_URL}/get-user-location.php?user_id=${user.id}`);
+      const data = await response.json();
+      
+      if (data.success && Array.isArray(data.locations) && data.locations.length > 0) {
+        const firstLoc = data.locations[0];
+        setSelectedLocationObj(firstLoc);
+        setUserLocation({ 
+          address: firstLoc.address || 'No address', 
+          cp_no: firstLoc.cp_no || user.cp_no || '' 
+        });
+      } else {
+        setUserLocation({ 
+          address: 'No address saved yet.', 
+          cp_no: user?.cp_no || 'No contact number saved' 
+        });
+        setSelectedLocationObj(null);
+      }
+    } catch (err) {
+      console.error('Error loading location:', err);
+      setUserLocation({ 
+        address: 'No address saved yet.', 
+        cp_no: user?.cp_no || 'No contact number saved' 
+      });
+      setSelectedLocationObj(null);
+    } finally {
+      setRefreshing(false);
     }
   };
 
@@ -182,22 +228,29 @@ const CustomOrder = ({ route }) => {
       return;
     }
 
+    if (!selectedLocationObj) {
+      setErrorMessage('Please select a shipping address before submitting your custom order.');
+      setErrorModalVisible(true);
+      return;
+    }
+
     setIsSubmitting(true);
     try {
       const orderData = {
         user_id: user.id,
+        location_id: selectedLocationObj.id, // ✅ Added location_id
         items: orderItems.map(item => ({
           name: item.name,
           brand: item.brand,
           unit: item.unit,
           quantity: item.quantity,
-          photo: item.image,
+          photo: item.photo,
           description: item.description,
           gathered: item.gathered ? 1 : 0,
         })),
       };
 
-      console.log('Submitting order:', JSON.stringify(orderData, null, 2));
+      console.log('Submitting custom order with location:', JSON.stringify(orderData, null, 2));
 
       const response = await fetch(`${BASE_URL}/check-custom-orders.php`, {
         method: 'POST',
@@ -235,7 +288,7 @@ const CustomOrder = ({ route }) => {
 
   const renderOrderItem = ({ item }) => (
     <View style={styles.orderItemCard}>
-      {item.image && <Image source={{ uri: item.image }} style={styles.orderItemImage} />}
+      {item.photo && <Image source={{ uri: item.photo }} style={styles.orderItemImage} />}
       <View style={styles.orderItemDetails}>
         <Text style={styles.orderItemName}>{item.name}</Text>
         <Text style={styles.orderItemBrand}>Brand: {item.brand}</Text>
@@ -261,7 +314,35 @@ const CustomOrder = ({ route }) => {
         style={styles.keyboardAvoidingView}
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
       >
-        <ScrollView contentContainerStyle={styles.scrollViewContent}>
+        <ScrollView 
+          contentContainerStyle={styles.scrollViewContent}
+          refreshControl={
+            <RefreshControl 
+              refreshing={refreshing} 
+              onRefresh={loadSavedOrDefaultLocation} 
+            />
+          }
+        >
+          {/* Shipping Address Section */}
+          <View style={[styles.card, { marginTop: 15 }]}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+              <View style={styles.row}>
+                <Ionicons name="location-outline" size={18} color={colors.primaryGreen} />
+                <Text style={styles.sectionHeading}>Shipping Address</Text>
+              </View>
+              <TouchableOpacity onPress={() => navigation.navigate('EditLocation', { 
+                user, 
+                fromScreen: 'CustomOrder',
+                // ✅ This tells EditLocation to return to CustomOrder after saving
+              })}>
+                <Ionicons name="create-outline" size={20} color={colors.primaryGreen} />
+              </TouchableOpacity>
+            </View>
+            <Text style={styles.shippingTextBold}>{user?.first_name} {user?.last_name}</Text>
+            <Text style={styles.shippingText}>{userLocation.address}</Text>
+            <Text style={styles.shippingText}>Contact: {userLocation.cp_no}</Text>
+          </View>
+
           <View style={styles.formContainer}>
             <Text style={styles.formTitle}>Add New Item</Text>
             <TextInput
@@ -339,14 +420,16 @@ const CustomOrder = ({ route }) => {
           <TouchableOpacity
             style={[styles.submitButton, isSubmitting && styles.submitButtonDisabled]}
             onPress={submitOrder}
-            disabled={isSubmitting}
+            disabled={isSubmitting || !selectedLocationObj}
           >
             {isSubmitting ? (
               <ActivityIndicator color={colors.white} />
             ) : (
               <>
                 <Ionicons name="checkmark-circle" size={20} color={colors.white} style={styles.buttonIcon} />
-                <Text style={styles.buttonText}>Submit Order</Text>
+                <Text style={styles.buttonText}>
+                  {!selectedLocationObj ? 'Select Address First' : 'Submit Custom Order'}
+                </Text>
               </>
             )}
           </TouchableOpacity>
@@ -465,6 +548,24 @@ const styles = StyleSheet.create({
   headerTitle: { fontSize: 20, fontWeight: 'bold', color: colors.white },
   keyboardAvoidingView: { flex: 1 },
   scrollViewContent: { flexGrow: 1, padding: 12, paddingBottom: 80 },
+  card: { 
+    backgroundColor: colors.white, 
+    padding: 15, 
+    borderRadius: 10, 
+    marginHorizontal: 15, 
+    marginBottom: 15, 
+    borderWidth: 1, 
+    borderColor: colors.greyBorder, 
+    shadowColor: '#000', 
+    shadowOffset: { width: 0, height: 2 }, 
+    shadowOpacity: 0.1, 
+    shadowRadius: 5, 
+    elevation: 3 
+  },
+  row: { flexDirection: 'row', alignItems: 'center', marginBottom: 8 },
+  sectionHeading: { fontWeight: 'bold', marginLeft: 5, color: colors.textPrimary },
+  shippingTextBold: { fontWeight: 'bold', fontSize: 15, marginTop: 5 },
+  shippingText: { color: colors.textSecondary },
   formContainer: {
     backgroundColor: colors.white,
     borderRadius: 12,
@@ -505,6 +606,8 @@ const styles = StyleSheet.create({
   imagePickerPlaceholder: { justifyContent: 'center', alignItems: 'center' },
   selectedImagePreview: { width: '100%', height: '100%', resizeMode: 'cover', borderRadius: 8 },
   imagePickerText: { color: colors.textSecondary, marginTop: 4, fontSize: 12 },
+  checkboxContainer: { flexDirection: 'row', alignItems: 'center', marginBottom: 12 },
+  checkboxLabel: { marginLeft: 8, color: colors.textPrimary, fontSize: 14 },
   addButton: {
     backgroundColor: colors.primaryGreen,
     paddingVertical: 10,

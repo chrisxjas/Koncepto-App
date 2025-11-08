@@ -10,6 +10,7 @@ import {
   Alert,
   RefreshControl,
   SafeAreaView,
+  Clipboard,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { BASE_URL } from '../config';
@@ -29,6 +30,7 @@ const colors = {
   blue: '#2196F3',
   purple: '#9C27B0',
   background: '#F8F9FA',
+  deniedRed: '#D32F2F',
 };
 
 const ToConfirm = ({ route, navigation }) => {
@@ -42,6 +44,12 @@ const ToConfirm = ({ route, navigation }) => {
   });
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+
+  // Copy order code to clipboard
+  const copyOrderCode = (orderCode) => {
+    Clipboard.setString(orderCode);
+    Alert.alert('Copied!', `Order code "${orderCode}" copied to clipboard.`);
+  };
 
   const parsePrice = (priceString) => {
     if (!priceString) return 0;
@@ -162,6 +170,7 @@ const ToConfirm = ({ route, navigation }) => {
       case 'to confirm': return colors.orange;
       case 'to receive': return colors.blue;
       case 'to rate': return colors.purple;
+      case 'denied': return colors.deniedRed;
       default: return colors.textSecondary;
     }
   };
@@ -172,6 +181,7 @@ const ToConfirm = ({ route, navigation }) => {
       case 'to confirm': return 'time-outline';
       case 'to receive': return 'cube-outline';
       case 'to rate': return 'star-outline';
+      case 'denied': return 'close-circle-outline';
       default: return 'ellipse-outline';
     }
   };
@@ -205,18 +215,39 @@ const ToConfirm = ({ route, navigation }) => {
   const renderItem = ({ item, index }) => {
     const statusColor = getStatusColor(item.status);
     const statusIcon = getStatusIcon(item.status);
+    const isDenied = item.status.toLowerCase() === 'denied';
 
     return (
       <View style={[
         styles.orderCard,
         index === 0 && styles.firstOrderCard,
-        index === orders.length - 1 && styles.lastOrderCard
+        index === orders.length - 1 && styles.lastOrderCard,
+        isDenied && styles.deniedOrderCard
       ]}>
         {/* Order Header */}
         <View style={styles.orderHeader}>
           <View style={styles.orderInfo}>
-            <Text style={styles.orderDate}>{formatDate(item.Orderdate)}</Text>
+            <View style={styles.orderCodeContainer}>
+              <Text style={styles.orderDate}>{formatDate(item.Orderdate)}</Text>
+              <TouchableOpacity
+                style={styles.copyButton}
+                onPress={() => copyOrderCode(item.order_code)}
+              >
+                <Ionicons name="copy-outline" size={14} color={colors.primaryGreen} />
+              </TouchableOpacity>
+            </View>
             <Text style={styles.orderTime}>{formatTime(item.Orderdate)}</Text>
+            
+            {/* Display Order Code */}
+            <Text style={styles.orderCode}>Order #: {item.order_code || 'N/A'}</Text>
+            
+            {/* Display Location */}
+            {item.location_address && (
+              <View style={styles.locationContainer}>
+                <Ionicons name="location-outline" size={12} color={colors.textSecondary} />
+                <Text style={styles.locationText}>{item.location_address}</Text>
+              </View>
+            )}
           </View>
           <View style={[styles.statusBadge, { backgroundColor: statusColor + '20' }]}>
             <Ionicons name={statusIcon} size={14} color={statusColor} />
@@ -226,8 +257,21 @@ const ToConfirm = ({ route, navigation }) => {
           </View>
         </View>
 
+        {/* Denied Message */}
+        {isDenied && (
+          <View style={styles.deniedMessageContainer}>
+            <Ionicons name="warning-outline" size={16} color={colors.deniedRed} />
+            <Text style={styles.deniedMessageText}>
+              The admin declined this request. Kindly copy order code and reach it out to us through message.
+            </Text>
+          </View>
+        )}
+
         {/* Order Items */}
-        <View style={styles.itemsContainer}>
+        <View style={[
+          styles.itemsContainer,
+          isDenied && styles.deniedItemsContainer
+        ]}>
           {item.items.map((subItem, idx) => {
             const itemPrice = parsePrice(subItem.price);
             const itemQuantity = parseInt(subItem.quantity, 10);
@@ -236,20 +280,33 @@ const ToConfirm = ({ route, navigation }) => {
             return (
               <View key={idx} style={[
                 styles.itemRow,
-                idx === item.items.length - 1 && styles.lastItemRow
+                idx === item.items.length - 1 && styles.lastItemRow,
+                isDenied && styles.deniedItemRow
               ]}>
                 <Image
                   source={{ uri: `${BASE_URL.replace(/\/$/, '')}/../storage/${subItem.image}` }}
-                  style={styles.productImage}
+                  style={[
+                    styles.productImage,
+                    isDenied && styles.deniedProductImage
+                  ]}
                   defaultSource={require('../assets/logo.png')}
                 />
                 <View style={styles.itemDetails}>
-                  <Text style={styles.productName} numberOfLines={2}>
+                  <Text style={[
+                    styles.productName,
+                    isDenied && styles.deniedText
+                  ]} numberOfLines={2}>
                     {subItem.productName}
                   </Text>
                   <View style={styles.itemMeta}>
-                    <Text style={styles.quantity}>Qty: {subItem.quantity}</Text>
-                    <Text style={styles.itemPrice}>
+                    <Text style={[
+                      styles.quantity,
+                      isDenied && styles.deniedText
+                    ]}>Qty: {subItem.quantity}</Text>
+                    <Text style={[
+                      styles.itemPrice,
+                      isDenied && styles.deniedText
+                    ]}>
                       ₱{itemSubtotal.toLocaleString(undefined, { 
                         minimumFractionDigits: 2, 
                         maximumFractionDigits: 2 
@@ -265,8 +322,14 @@ const ToConfirm = ({ route, navigation }) => {
         {/* Order Footer */}
         <View style={styles.orderFooter}>
           <View style={styles.totalContainer}>
-            <Text style={styles.totalLabel}>Order Total:</Text>
-            <Text style={styles.totalAmount}>
+            <Text style={[
+              styles.totalLabel,
+              isDenied && styles.deniedText
+            ]}>Order Total:</Text>
+            <Text style={[
+              styles.totalAmount,
+              isDenied && styles.deniedText
+            ]}>
               ₱{parsePrice(item.total_price).toLocaleString(undefined, { 
                 minimumFractionDigits: 2, 
                 maximumFractionDigits: 2 
@@ -274,11 +337,21 @@ const ToConfirm = ({ route, navigation }) => {
             </Text>
           </View>
           <TouchableOpacity
-            style={styles.viewButton}
+            style={[
+              styles.viewButton,
+              isDenied && styles.deniedViewButton
+            ]}
             onPress={() => navigation.navigate('ViewOrderDetails', { order: item, user })}
           >
-            <Ionicons name="eye-outline" size={16} color={colors.white} />
-            <Text style={styles.viewButtonText}>View Details</Text>
+            <Ionicons 
+              name="eye-outline" 
+              size={16} 
+              color={isDenied ? colors.deniedRed : colors.white} 
+            />
+            <Text style={[
+              styles.viewButtonText,
+              isDenied && styles.deniedViewButtonText
+            ]}>View Details</Text>
           </TouchableOpacity>
         </View>
       </View>
@@ -595,13 +668,6 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     color: colors.primaryGreen,
   },
-  debugText: {
-    fontSize: 10,
-    color: colors.textSecondary,
-    marginTop: 8,
-    textAlign: 'center',
-    fontStyle: 'italic',
-  },
   orderCard: {
     backgroundColor: colors.white,
     marginHorizontal: 16,
@@ -615,6 +681,10 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
     borderLeftWidth: 4,
     borderLeftColor: colors.primaryGreen,
+  },
+  deniedOrderCard: {
+    borderLeftColor: colors.deniedRed,
+    backgroundColor: '#FFF5F5',
   },
   firstOrderCard: {
     marginTop: 16,
@@ -631,15 +701,41 @@ const styles = StyleSheet.create({
   orderInfo: {
     flex: 1,
   },
+  orderCodeContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 2,
+  },
   orderDate: {
     fontSize: 16,
     fontWeight: 'bold',
     color: colors.textPrimary,
-    marginBottom: 2,
+    marginRight: 8,
+  },
+  copyButton: {
+    padding: 4,
   },
   orderTime: {
     fontSize: 13,
     color: colors.textSecondary,
+    marginBottom: 4,
+  },
+  orderCode: {
+    fontSize: 13,
+    color: colors.textPrimary,
+    fontWeight: '500',
+    marginBottom: 4,
+  },
+  locationContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 4,
+  },
+  locationText: {
+    fontSize: 12,
+    color: colors.textSecondary,
+    marginLeft: 4,
+    flex: 1,
   },
   statusBadge: {
     flexDirection: 'row',
@@ -653,10 +749,28 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '600',
   },
+  deniedMessageContainer: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    backgroundColor: '#FFCDD2',
+    padding: 12,
+    borderRadius: 8,
+    marginBottom: 16,
+    gap: 8,
+  },
+  deniedMessageText: {
+    fontSize: 12,
+    color: colors.deniedRed,
+    fontWeight: '500',
+    flex: 1,
+  },
   itemsContainer: {
     borderTopWidth: 1,
     borderTopColor: colors.greyBorder,
     paddingTop: 16,
+  },
+  deniedItemsContainer: {
+    opacity: 0.7,
   },
   itemRow: {
     flexDirection: 'row',
@@ -665,6 +779,9 @@ const styles = StyleSheet.create({
     paddingBottom: 16,
     borderBottomWidth: 1,
     borderBottomColor: colors.lightGreen,
+  },
+  deniedItemRow: {
+    opacity: 0.8,
   },
   lastItemRow: {
     marginBottom: 0,
@@ -678,6 +795,9 @@ const styles = StyleSheet.create({
     backgroundColor: colors.lightGreyBackground,
     marginRight: 12,
   },
+  deniedProductImage: {
+    opacity: 0.6,
+  },
   itemDetails: {
     flex: 1,
   },
@@ -687,6 +807,10 @@ const styles = StyleSheet.create({
     color: colors.textPrimary,
     marginBottom: 6,
     lineHeight: 20,
+  },
+  deniedText: {
+    color: colors.deniedRed,
+    opacity: 0.8,
   },
   itemMeta: {
     flexDirection: 'row',
@@ -734,10 +858,18 @@ const styles = StyleSheet.create({
     gap: 6,
     elevation: 2,
   },
+  deniedViewButton: {
+    backgroundColor: 'transparent',
+    borderWidth: 1,
+    borderColor: colors.deniedRed,
+  },
   viewButtonText: {
     color: colors.white,
     fontSize: 14,
     fontWeight: '600',
+  },
+  deniedViewButtonText: {
+    color: colors.deniedRed,
   },
   emptyState: {
     flex: 1,

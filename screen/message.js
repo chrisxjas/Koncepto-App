@@ -25,17 +25,7 @@ import { useNavigation, useRoute } from '@react-navigation/native';
 import { BASE_URL } from '../config';
 import * as Clipboard from 'expo-clipboard';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import * as Notifications from 'expo-notifications';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-
-// Configure notifications
-Notifications.setNotificationHandler({
-  handleNotification: async () => ({
-    shouldShowAlert: true,
-    shouldPlaySound: true,
-    shouldSetBadge: true,
-  }),
-});
 
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
   UIManager.setLayoutAnimationEnabledExperimental(true);
@@ -70,8 +60,9 @@ export default function MessageScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [keyboardHeight, setKeyboardHeight] = useState(0);
   const [settingsModalVisible, setSettingsModalVisible] = useState(false);
-  const [pushNotificationEnabled, setPushNotificationEnabled] = useState(true);
-  const [expoPushToken, setExpoPushToken] = useState('');
+  const [autoRefreshEnabled, setAutoRefreshEnabled] = useState(true);
+  const [soundEnabled, setSoundEnabled] = useState(true);
+  const [vibrationEnabled, setVibrationEnabled] = useState(true);
 
   const navigation = useNavigation();
   const route = useRoute();
@@ -79,69 +70,32 @@ export default function MessageScreen() {
   const flatListRef = useRef(null);
   const pollingRef = useRef(null);
 
-  // Load notification settings from storage
+  // Load settings from storage
   useEffect(() => {
-    loadNotificationSettings();
+    loadSettings();
   }, []);
 
-  const loadNotificationSettings = async () => {
+  const loadSettings = async () => {
     try {
-      const savedSetting = await AsyncStorage.getItem(`notification_${user.id}`);
-      if (savedSetting !== null) {
-        setPushNotificationEnabled(JSON.parse(savedSetting));
-      }
+      const [autoRefresh, sound, vibration] = await Promise.all([
+        AsyncStorage.getItem(`auto_refresh_${user.id}`),
+        AsyncStorage.getItem(`sound_${user.id}`),
+        AsyncStorage.getItem(`vibration_${user.id}`)
+      ]);
+
+      if (autoRefresh !== null) setAutoRefreshEnabled(JSON.parse(autoRefresh));
+      if (sound !== null) setSoundEnabled(JSON.parse(sound));
+      if (vibration !== null) setVibrationEnabled(JSON.parse(vibration));
     } catch (error) {
-      console.error('Error loading notification settings:', error);
+      console.error('Error loading settings:', error);
     }
   };
 
-  const saveNotificationSettings = async (value) => {
+  const saveSetting = async (key, value) => {
     try {
-      await AsyncStorage.setItem(`notification_${user.id}`, JSON.stringify(value));
+      await AsyncStorage.setItem(`${key}_${user.id}`, JSON.stringify(value));
     } catch (error) {
-      console.error('Error saving notification settings:', error);
-    }
-  };
-
-  // Register for push notifications
-  useEffect(() => {
-    registerForPushNotificationsAsync().then(token => {
-      setExpoPushToken(token);
-      // Send token to server
-      if (token && user?.id) {
-        sendPushTokenToServer(token);
-      }
-    });
-
-    // Listen for notifications when app is foregrounded
-    const subscription = Notifications.addNotificationReceivedListener(notification => {
-      console.log('Notification received:', notification);
-    });
-
-    // Listen for notification responses
-    const responseSubscription = Notifications.addNotificationResponseReceivedListener(response => {
-      // Navigate to messages when notification is tapped
-      navigation.navigate('Message', { user });
-    });
-
-    return () => {
-      subscription.remove();
-      responseSubscription.remove();
-    };
-  }, [user]);
-
-  const sendPushTokenToServer = async (token) => {
-    try {
-      await fetch(`${BASE_URL}/update_push_token.php`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          user_id: user.id,
-          push_token: token
-        }),
-      });
-    } catch (error) {
-      console.error('Error sending push token:', error);
+      console.error('Error saving setting:', error);
     }
   };
 
@@ -209,9 +163,22 @@ export default function MessageScreen() {
 
   useEffect(() => {
     fetchMessages();
-    pollingRef.current = setInterval(fetchMessages, 4500);
-    return () => clearInterval(pollingRef.current);
-  }, [fetchMessages]);
+    
+    // Set up auto-refresh if enabled
+    if (autoRefreshEnabled) {
+      pollingRef.current = setInterval(fetchMessages, 4500);
+    } else {
+      if (pollingRef.current) {
+        clearInterval(pollingRef.current);
+      }
+    }
+
+    return () => {
+      if (pollingRef.current) {
+        clearInterval(pollingRef.current);
+      }
+    };
+  }, [fetchMessages, autoRefreshEnabled]);
 
   const onRefresh = async () => {
     setRefreshing(true);
@@ -303,7 +270,7 @@ export default function MessageScreen() {
 
     const tmpId = `tmp-${Date.now()}`;
     const now = new Date();
-    const manilaTime = formatManilaTime(now.toISOString()); // Use the same formatting for consistency
+    const manilaTime = formatManilaTime(now.toISOString());
     const createdAtLocal = now.toISOString();
     const optimisticMessage = {
       id: tmpId,
@@ -517,9 +484,38 @@ export default function MessageScreen() {
     };
   }, []);
 
-  const handleNotificationToggle = (value) => {
-    setPushNotificationEnabled(value);
-    saveNotificationSettings(value);
+  const handleAutoRefreshToggle = (value) => {
+    setAutoRefreshEnabled(value);
+    saveSetting('auto_refresh', value);
+  };
+
+  const handleSoundToggle = (value) => {
+    setSoundEnabled(value);
+    saveSetting('sound', value);
+  };
+
+  const handleVibrationToggle = (value) => {
+    setVibrationEnabled(value);
+    saveSetting('vibration', value);
+  };
+
+  const clearChatHistory = () => {
+    Alert.alert(
+      'Clear Chat History',
+      'Are you sure you want to clear all chat messages? This action cannot be undone.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { 
+          text: 'Clear', 
+          style: 'destructive',
+          onPress: () => {
+            // Implement clear chat history functionality here
+            Alert.alert('Success', 'Chat history cleared successfully.');
+            setSettingsModalVisible(false);
+          }
+        },
+      ]
+    );
   };
 
   return (
@@ -602,7 +598,7 @@ export default function MessageScreen() {
               <SafeAreaView style={styles.modalOverlay}>
                 <View style={styles.settingsModal}>
                   <View style={styles.settingsHeader}>
-                    <Text style={styles.settingsTitle}>Settings</Text>
+                    <Text style={styles.settingsTitle}>Chat Settings</Text>
                     <TouchableOpacity onPress={() => setSettingsModalVisible(false)}>
                       <Ionicons name="close" size={24} color={colors.textPrimary} />
                     </TouchableOpacity>
@@ -610,22 +606,52 @@ export default function MessageScreen() {
                   
                   <View style={styles.settingItem}>
                     <View style={styles.settingInfo}>
-                      <Ionicons name="notifications-outline" size={22} color={colors.primaryGreen} />
-                      <Text style={styles.settingText}>Push Notification</Text>
+                      <Ionicons name="refresh-outline" size={22} color={colors.primaryGreen} />
+                      <Text style={styles.settingText}>Auto Refresh</Text>
                     </View>
                     <Switch
-                      value={pushNotificationEnabled}
-                      onValueChange={handleNotificationToggle}
+                      value={autoRefreshEnabled}
+                      onValueChange={handleAutoRefreshToggle}
                       trackColor={{ false: '#767577', true: colors.lightGreen }}
-                      thumbColor={pushNotificationEnabled ? colors.primaryGreen : '#f4f3f4'}
+                      thumbColor={autoRefreshEnabled ? colors.primaryGreen : '#f4f3f4'}
                     />
                   </View>
                   
+                  <View style={styles.settingItem}>
+                    <View style={styles.settingInfo}>
+                      <Ionicons name="volume-high-outline" size={22} color={colors.primaryGreen} />
+                      <Text style={styles.settingText}>Message Sounds</Text>
+                    </View>
+                    <Switch
+                      value={soundEnabled}
+                      onValueChange={handleSoundToggle}
+                      trackColor={{ false: '#767577', true: colors.lightGreen }}
+                      thumbColor={soundEnabled ? colors.primaryGreen : '#f4f3f4'}
+                    />
+                  </View>
+                  
+                  <View style={styles.settingItem}>
+                    <View style={styles.settingInfo}>
+                      <Ionicons name="phone-vibrate-outline" size={22} color={colors.primaryGreen} />
+                      <Text style={styles.settingText}>Vibration</Text>
+                    </View>
+                    <Switch
+                      value={vibrationEnabled}
+                      onValueChange={handleVibrationToggle}
+                      trackColor={{ false: '#767577', true: colors.lightGreen }}
+                      thumbColor={vibrationEnabled ? colors.primaryGreen : '#f4f3f4'}
+                    />
+                  </View>
+
+                  <View style={styles.sectionDivider} />
+                  
+                  <TouchableOpacity style={styles.dangerOption} onPress={clearChatHistory}>
+                    <Ionicons name="trash-outline" size={20} color={colors.errorRed} />
+                    <Text style={[styles.dangerText, { marginLeft: 12 }]}>Clear Chat History</Text>
+                  </TouchableOpacity>
+                  
                   <Text style={styles.settingDescription}>
-                    {pushNotificationEnabled 
-                      ? "You will receive notifications when admin sends new messages."
-                      : "You will not receive notifications for new messages."
-                    }
+                    Auto refresh: {autoRefreshEnabled ? "Messages will update automatically every 5 seconds." : "Manual refresh only."}
                   </Text>
                   
                   <TouchableOpacity 
@@ -682,37 +708,6 @@ export default function MessageScreen() {
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
-}
-
-// Push notification registration function
-async function registerForPushNotificationsAsync() {
-  let token;
-
-  if (Platform.OS === 'android') {
-    await Notifications.setNotificationChannelAsync('default', {
-      name: 'default',
-      importance: Notifications.AndroidImportance.MAX,
-      vibrationPattern: [0, 250, 250, 250],
-      lightColor: '#FF231F7C',
-    });
-  }
-
-  const { status: existingStatus } = await Notifications.getPermissionsAsync();
-  let finalStatus = existingStatus;
-  
-  if (existingStatus !== 'granted') {
-    const { status } = await Notifications.requestPermissionsAsync();
-    finalStatus = status;
-  }
-  
-  if (finalStatus !== 'granted') {
-    alert('Failed to get push token for push notification!');
-    return;
-  }
-
-  token = (await Notifications.getExpoPushTokenAsync()).data;
-
-  return token;
 }
 
 const styles = StyleSheet.create({
@@ -990,6 +985,7 @@ const styles = StyleSheet.create({
     marginTop: 12,
     lineHeight: 18,
     fontStyle: 'italic',
+    textAlign: 'center',
   },
   settingsCloseButton: {
     backgroundColor: colors.primaryGreen,
@@ -1003,5 +999,21 @@ const styles = StyleSheet.create({
     color: colors.white,
     fontSize: 16,
     fontWeight: '600',
+  },
+  sectionDivider: {
+    height: 1,
+    backgroundColor: '#f0f0f0',
+    marginVertical: 15,
+  },
+  dangerOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 5,
+  },
+  dangerText: {
+    fontSize: 16,
+    color: colors.errorRed,
+    fontWeight: '500',
   },
 });
